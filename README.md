@@ -1,10 +1,10 @@
 # rpcinisation
 _Convergent plugin library_
 
-This project provides a framework for language-agnostic plugin service loading in Rust.  
-By using protobuf as a common interface format, RPC bridges the FFI gap.
+This project provides a framework for language-agnostic plugin gRPC service loading in Rust.  
+By using protobuf as a common interface format, gRPC + IPC can bridge the FFI gap.
 
-Nothing particularly novel, but it does mean plugins can be in any language.
+Nothing particularly novel, but it does mean plugins are free to implement gRPC + IPC in their own languages.
 
 The name is a play on [carcinisation](https://en.wikipedia.org/wiki/Carcinisation), the happy accident of
 multiple species' [convergent evolution](https://en.wikipedia.org/wiki/Convergent_evolution) into crab-like forms 🦀
@@ -16,7 +16,7 @@ Multiple languages and frameworks support gRPC client and server generation from
 Rust can generate compiled code from protobuf files or dynamically dispatch calls using runtime protobuf reflection.
 
 This project combines both:
-* _Compile-time_ guarantees for host-plugin IPC
+* _Compile-time_ guarantees for host-plugin IPC  
 * _Dynamic_ gRPC service registration   
 
 Plugins communicate with the host in JSON on stdin/stdout while also exposing dynamically invoked, arbitrary services.

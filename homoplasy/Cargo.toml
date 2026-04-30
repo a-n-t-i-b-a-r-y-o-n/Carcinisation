@@ -4,11 +4,26 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+# Results
+anyhow = "1.0"
+
 # HTTP
 tonic = "0.14"
+tower = "0.5"
+tower-service = "0.3"
 
 # Plugin IDs
 uuid = { version = "1.19", features = [ "v4" ]}
 
 # Async
 futures = "0.3"
+lazy_static = "1.5"
+parking_lot = "0.12"
+tokio = "1.52"
+
+# Proto parsing
+bytes = "1.11"
+prost-reflect = "0.16"
+
+# Temporary files
+tempfile = "3"
