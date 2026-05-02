@@ -2,6 +2,7 @@ use std::convert::Infallible;
 use std::future::poll_fn;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
@@ -45,6 +46,7 @@ struct PluginServiceInner {
     name: String,
     methods: RwLock<Vec<PluginMethod>>,
     channel: RwLock<Option<Channel>>,
+    server: RwLock<Option<Uri>>,
 }
 
 /// RPC Service implemented in a plugin
@@ -118,7 +120,7 @@ impl PluginService {
                     // Get full method information
                     methods.push(
                         PluginMethod {
-                            name: method.full_name().to_string(),
+                            name: method.name().to_string(),
                             request: PluginRequest { name: method.input().full_name().to_string() },
                             response: PluginResponse { name: method.output().full_name().to_string() },
                         }
@@ -133,6 +135,7 @@ impl PluginService {
                             name: service.full_name().to_string(),
                             methods: RwLock::new(methods),
                             channel: RwLock::new(None),
+                            server: RwLock::new(None),
                         })
                     }
                 );
@@ -144,12 +147,14 @@ impl PluginService {
     }
 
     /// Set the plugin server port number
-    pub(crate) fn bind_to_port(&mut self, port_number: u32) -> Result<()> {
+    pub(crate) fn bind_to_server(&mut self, port_number: u32) -> Result<()> {
         // TODO: Use HTTPS
-        let uri = format!("http://127.0.0.1:{port_number}");
+        let uri = Uri::from_str(&format!("http://[::1]:{port_number}"))?;
+
+        *self.inner.server.write() = Some(uri.clone());
 
         // Build service endpoint object
-        let endpoint = Endpoint::from_shared(uri)?
+        let endpoint = Endpoint::from(uri)
             .connect_timeout(Duration::from_secs(5))
             .timeout(Duration::from_secs(30))
             .tcp_nodelay(true);
@@ -221,7 +226,11 @@ impl Service<Request<AxumBody>> for PluginService {
                 let status = Self::map_status(
                     Status::new(
                         Code::Unimplemented,
-                        format!("Unknown method {} on service {}", method_name, inner.name),
+                        format!(
+                            "Unknown method {} on service {}.",
+                            method_name,
+                            inner.name,
+                        ),
                     )
                 );
 

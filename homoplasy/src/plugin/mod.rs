@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use parking_lot::{Mutex, RwLock};
@@ -22,13 +23,14 @@ struct PluginInner {
     services: Mutex<Vec<PluginService>>,
     status: RwLock<PluginStatus>,
     port: u32,
+    extracted_dir: RwLock<PathBuf>,
     process: RwLock<Option<Child>>,
 }
 
 
 impl Plugin {
 
-    pub fn new(package: PackageV1, services: Vec<PluginService>, port: u32) -> Self {
+    pub fn new(package: PackageV1, services: Vec<PluginService>, port: u32, extracted: PathBuf) -> Self {
         Plugin {
             inner: Arc::new(
                 PluginInner {
@@ -36,6 +38,7 @@ impl Plugin {
                     services: Mutex::new(services),
                     status: RwLock::new(PluginStatus::NotStarted),
                     port,
+                    extracted_dir: RwLock::new(extracted),
                     process: RwLock::new(None)
                 }
             )

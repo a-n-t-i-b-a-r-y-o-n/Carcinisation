@@ -89,6 +89,9 @@ impl<'p> PluginManager {
             return Err(anyhow!(e))
         }
 
+        // Update plugin with extraction info
+
+
         // Extract proto files directory
         let proto_path = PathBuf::from(package.manifest.plugin_proto_dir());
         let _ = package.extract_dir_to(&proto_path, &package_dir)?;
@@ -140,20 +143,24 @@ impl<'p> PluginManager {
     where
         S: AsRef<OsStr> + AsRef<Path>
     {
-        let path = Path::new(plugin_folder);
-        if !path.exists() {
-            return Err(anyhow!("Plugin folder \"{}\" does not exist", path.display()));
+        // Check plugin package storage folder path
+        let packages_folder = Path::new(plugin_folder);
+        if !packages_folder.exists() {
+            return Err(anyhow!("Plugin folder \"{}\" does not exist", packages_folder.display()));
         }
 
+        // Working directory for plugin extraction
+        let extraction_dir = (&*SINGLETON).inner.working_dir.path();
+
         // Get list of package files
-        let packages = Self::enumerate_packages(&path)?;
+        let packages = Self::enumerate_packages(&packages_folder)?;
 
         // Build list of plugins from packages
         let mut loaded_count = 0;
         for mut package in packages {
 
             // Extract relevant package contents
-            let extract_root = Self::extract_package(&mut package, path)?;
+            let extract_root = Self::extract_package(&mut package, extraction_dir)?;
 
             // Get extracted proto directory
             let proto_path = extract_root.join(package.manifest.plugin_proto_dir());
@@ -167,7 +174,7 @@ impl<'p> PluginManager {
             println!("[-] Loaded plugin: {}", package.manifest.plugin_name());
 
             // Build plugin object
-            let plugin = Plugin::new(package, services, port_number);
+            let plugin = Plugin::new(package, services, port_number, extract_root);
 
             // Update singleton's plugin list
             (&*SINGLETON).inner
@@ -191,7 +198,6 @@ impl<'p> PluginManager {
     pub async fn start_plugins() -> Result<usize> {
 
         let inner = &*SINGLETON.inner;
-        let plugin_directory = inner.working_dir.path().to_path_buf();
         let mut plugins = inner.plugins.write();
 
         let mut started_count = 0;
@@ -202,15 +208,18 @@ impl<'p> PluginManager {
             // Plugin port number
             let port = plugin.inner.port;
 
-            // Get execution paths
-            let working_dir = plugin_directory.join(package.manifest.plugin_execution_dir());
-            let entrypoint = plugin_directory.join(package.manifest.plugin_entrypoint());
+            // Get plugin extraction directory
+            let plugin_dir = plugin.inner.extracted_dir.read();
+
+            // Get absolute execution paths
+            let working_dir = plugin_dir.join(package.manifest.plugin_execution_dir());
+            let entrypoint = working_dir.join(package.manifest.plugin_entrypoint());
 
             println!("[-] Plugin entrypoint: {}", entrypoint.display());
 
-            // Set server port for proxy plugin service
+            // Set server info for proxy plugin service
             for service in plugin.inner.services.lock().iter_mut() {
-                service.bind_to_port(port)?;
+                service.bind_to_server(port)?;
             }
 
             // Start the plugin binary
