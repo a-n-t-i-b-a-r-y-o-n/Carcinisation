@@ -1,4 +1,3 @@
-use std::path::PathBuf;
 use morphology::package::PackageV1;
 use crate::plugin::plugin_service::PluginService;
 use crate::plugin::plugin_status::PluginStatus;

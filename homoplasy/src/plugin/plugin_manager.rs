@@ -2,7 +2,7 @@ use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::{RwLock, RwLockReadGuard};
+use std::sync::RwLock;
 
 use anyhow::{anyhow, Result};
 use convert_case::ccase;

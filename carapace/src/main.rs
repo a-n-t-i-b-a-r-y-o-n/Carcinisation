@@ -1,11 +1,6 @@
-use std::ops::Deref;
-use std::path::Path;
-use tonic::service::Routes;
 use tonic::transport::Server;
 use homoplasy::plugin::plugin_manager::PluginManager;
 use homoplasy::plugin::plugin_server_ext::PluginRoutesExt;
-use homoplasy::plugin::plugin_service::PluginService;
-use homoplasy::server::DynamicRoutesExt;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

@@ -1,14 +1,12 @@
 use std::convert::Infallible;
 use std::path::{Path, PathBuf};
-use std::pin::Pin;
 use std::process::Command;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use std::thread::sleep;
 use std::time::Duration;
 use anyhow::{anyhow, Result};
 use bytes::Bytes;
-use prost_reflect::{DescriptorError, DescriptorPool};
+use prost_reflect::DescriptorPool;
 use tempfile::TempDir;
 use tonic::body::Body;
 use tonic::codegen::BoxFuture;

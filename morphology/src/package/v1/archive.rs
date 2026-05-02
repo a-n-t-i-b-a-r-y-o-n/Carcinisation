@@ -1,6 +1,6 @@
 use std::ffi::OsStr;
 use std::fs::File;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use anyhow::Result;
 use liblzma::read::XzDecoder;
 use liblzma::write::{AutoFinishXzEncoder, XzEncoder};
@@ -17,7 +17,7 @@ impl PackageV1 {
     pub(crate) fn create_archive<S>(output_path: &S) -> Result<ArchiveFormatBuilder>
     where
         S: AsRef<OsStr> + AsRef<Path> + ?Sized
-    { 
+    {
         let output_file = File::create(output_path)?;
         let compressor = XzEncoder::new_parallel(output_file, 9);
         let tarball = Builder::new(XzEncoder::auto_finish(compressor));
