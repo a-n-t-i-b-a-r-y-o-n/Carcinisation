@@ -158,11 +158,14 @@ impl<'p> PluginManager {
             // Get extracted proto directory
             let proto_path = extract_root.join(package.manifest.plugin_proto_dir());
 
+            // Get a new port number
+            let port_number = PortService::request_port_assignment()?;
+
             // Parse protos to services
             let services = Self::parse_proto_files(&proto_path)?;
 
             // Build plugin object
-            let plugin = Plugin::new(package, services);
+            let plugin = Plugin::new(package, services, port_number);
 
             // Update singleton's plugin list
             (&*SINGLETON).inner
@@ -176,7 +179,7 @@ impl<'p> PluginManager {
 
         Ok(loaded_count)
     }
-    
+
     /// Get the list of loaded plugins
     pub fn get_plugins() -> Vec<Plugin> {
         (&*SINGLETON).inner.plugins.read().to_owned()
@@ -185,23 +188,28 @@ impl<'p> PluginManager {
     /// Initialize the plugin manager
     pub async fn start_plugins() -> Result<usize> {
 
-        let _self = &*SINGLETON.inner;
-        let plugin_directory = _self.working_dir.path().to_path_buf();
-        let mut plugins = _self.plugins.write();
+        let inner = &*SINGLETON.inner;
+        let plugin_directory = inner.working_dir.path().to_path_buf();
+        let mut plugins = inner.plugins.write();
 
         let mut started_count = 0;
         for plugin in plugins.iter_mut() {
             // Package information
             let package = plugin.get_package();
 
+            // Plugin port number
+            let port = plugin.inner.port;
+
             // Get execution paths
             let working_dir = plugin_directory.join(package.manifest.plugin_execution_dir());
             let entrypoint = plugin_directory.join(package.manifest.plugin_entrypoint());
 
-            println!("Plugin ID entrypoint: {}", entrypoint.display());
+            println!("Plugin entrypoint: {}", entrypoint.display());
 
-            // Get port number for plugin server
-            let port = PortService::request_port_assignment()?;
+            // Set server port for proxy plugin service
+            for service in plugin.inner.services.lock().iter_mut() {
+                service.bind_to_port(port)?;
+            }
 
             // Start the plugin binary
             let mut process = ExecutionService::start_plugin_server(&entrypoint, &working_dir)?;
@@ -212,8 +220,6 @@ impl<'p> PluginManager {
             // Update the process associated with the plugin
             *plugin.inner.process.write() = Some(process);
 
-            // TODO: Confirm server is up?
-            
             // Update plugin status
             *plugin.inner.status.write() = PluginStatus::Active;
 

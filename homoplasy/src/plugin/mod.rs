@@ -21,20 +21,21 @@ struct PluginInner {
     package: Mutex<PackageV1>,
     services: Mutex<Vec<PluginService>>,
     status: RwLock<PluginStatus>,
+    port: u32,
     process: RwLock<Option<Child>>,
 }
 
 
 impl Plugin {
 
-    pub fn new(package: PackageV1, services: Vec<PluginService>) -> Self {
-
+    pub fn new(package: PackageV1, services: Vec<PluginService>, port: u32) -> Self {
         Plugin {
             inner: Arc::new(
                 PluginInner {
                     package: Mutex::new(package),
                     services: Mutex::new(services),
                     status: RwLock::new(PluginStatus::NotStarted),
+                    port,
                     process: RwLock::new(None)
                 }
             )

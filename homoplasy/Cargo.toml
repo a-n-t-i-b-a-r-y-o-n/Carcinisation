@@ -21,9 +21,6 @@ tonic = "0.14"
 tower = "0.5"
 tower-service = "0.3"
 
-# Plugin IDs
-uuid = { version = "1.19", features = [ "v4" ]}
-
 # Async
 futures = "0.3"
 lazy_static = "1.5"

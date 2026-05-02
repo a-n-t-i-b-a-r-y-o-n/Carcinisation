@@ -1,4 +1,5 @@
 use std::convert::Infallible;
+use std::future::poll_fn;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
@@ -6,12 +7,15 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 use anyhow::{anyhow, Result};
 use bytes::Bytes;
+use parking_lot::RwLock;
 use prost_reflect::DescriptorPool;
 use tempfile::TempDir;
 use tonic::body::Body;
 use tonic::codegen::BoxFuture;
 use tonic::codegen::http::{Request, Response};
 use tonic::service::AxumBody;
+use tonic::{Code, Status};
+use tonic::transport::{Channel, Endpoint, Uri};
 use tower_service::Service;
 use crate::server::dynamic_named_service::DynamicNamedService;
 
@@ -39,8 +43,8 @@ pub struct PluginService {
 
 struct PluginServiceInner {
     name: String,
-    methods: Vec<PluginMethod>,
-    
+    methods: RwLock<Vec<PluginMethod>>,
+    channel: RwLock<Option<Channel>>,
 }
 
 /// RPC Service implemented in a plugin
@@ -127,7 +131,8 @@ impl PluginService {
                     PluginService {
                         inner: Arc::new(PluginServiceInner {
                             name: service.full_name().to_string(),
-                            methods,
+                            methods: RwLock::new(methods),
+                            channel: RwLock::new(None),
                         })
                     }
                 );
@@ -138,6 +143,25 @@ impl PluginService {
 
     }
 
+    /// Set the plugin server port number
+    pub(crate) fn bind_to_port(&mut self, port_number: u32) -> Result<()> {
+        // TODO: Use HTTPS
+        let uri = format!("http://127.0.0.1:{port_number}");
+
+        // Build service endpoint object
+        let endpoint = Endpoint::from_shared(uri)?
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(30))
+            .tcp_nodelay(true);
+
+        // Lazy-built channel to talk to end point
+        let channel = endpoint.connect_lazy();
+
+        // Update local channel handle
+        *self.inner.channel.write() = Some(channel);
+
+        Ok(())
+    }
 }
 
 /// Service name for request routing
@@ -150,41 +174,127 @@ impl Service<Request<AxumBody>> for PluginService {
     type Error = Infallible;
     type Future = BoxFuture<Self::Response, Self::Error>;
 
-    fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<std::result::Result<(), Self::Error>> {
-        // TODO: Actually poll?
-        Poll::Ready(Ok(()))
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<std::result::Result<(), Self::Error>> {
+        // Get channel handle or return pending
+        let mut channel = match self.inner.channel.read().clone() {
+            None => return Poll::Pending,
+            Some(c) => c
+        };
+
+        // Poll, assuming pending on error
+        match channel.poll_ready(cx) {
+            Poll::Pending => Poll::Pending,
+            Poll::Ready(result) => {
+                match result {
+                    Ok(_) => Poll::Ready(Ok(())),
+                    Err(e) => {
+                        println!("Failed to poll channel: {e}");
+                        Poll::Pending
+                    }
+                }
+            }
+        }
     }
 
     fn call(&mut self, req: Request<AxumBody>) -> Self::Future {
+        // Get handle on self
+        let inner = self.inner.clone();
 
-        // Copy request path URI to owned
-        let full_path = req.uri().path().to_owned();
-
-        // Copy required service info to owned
-        let service_name = self.inner.name.to_owned();
-        let methods = self.inner.methods.to_owned();
-
-        // Remove the leading service name and make the result owned
-        let service_prefix = format!("/{}/", service_name);
-        let method_name = full_path.trim_start_matches(&service_prefix).to_owned();
-
+        // Method handler future
         let future = async move {
 
-            tokio::time::sleep(Duration::from_secs(1)).await;
+            // Copy request path URI to owned
+            let path = req.uri().path().to_owned();
 
-            if let Some(m) = methods.iter().filter(|m| m.name == method_name).next() {
-                // TODO: Invoke the plugin method
+            // Map the request like a generated client would
+            let mut req = Self::map_request(req);
 
+            // Copy required service info to owned
+            let service_name = inner.name.to_owned();
+
+            // Remove the leading service name and make the result owned
+            let service_prefix = format!("/{}/", service_name);
+            let method_name = path.trim_start_matches(&service_prefix).to_owned();
+
+            // Handle unimplemented methods
+            if !inner.methods.read().iter().any(|m| m.name == method_name) {
+                let status = Self::map_status(
+                    Status::new(
+                        Code::Unimplemented,
+                        format!("Unknown method {} on service {}", method_name, inner.name),
+                    )
+                );
+
+                return Ok(status);
             }
 
-            // TODO: Handle unmatched routes
+            // Get a handle on the channel
+            let mut channel = match inner.channel.read().clone() {
+                None => {
+                    let status = Self::map_status(
+                        Status::new(
+                            Code::Unavailable,
+                            format!("Service {} plugin not yet started", inner.name),
+                        )
+                    );
 
-            Ok(Response::new(Body::empty()))
+                    return Ok(status);
+                }
+                Some(c) => c
+            };
 
+            // Rewrite the request URI
+            *req.uri_mut() = match Self::extract_path_and_query(req.uri()) {
+                Err(e) => {
+                    let status = Self::map_status(
+                        Status::new(
+                            Code::Internal,
+                            format!("Failed to map URI: {e}"),
+                        )
+                    );
+
+                    return Ok(status);
+                }
+                Ok(uri) => uri,
+            };
+
+            // Poll until plugin server is ready
+            if let Err(e) = poll_fn(|cx| Channel::poll_ready(&mut channel, cx)).await {
+                return Ok(Self::map_status(Status::from_error(Box::new(e))));
+            }
+
+            // Proxy request to plugin and return response
+            match channel.call(req).await {
+                Ok(response) => Ok(response),
+                Err(e) => Ok(Self::map_status(Status::from_error(Box::new(e))))
+            }
         };
 
-
+        // Return the Boxed Pinned handler
         Box::pin(future)
 
+    }
+}
+
+impl PluginService {
+    /// Map a Tonic [`Status`] to an HTTP response
+    fn map_status(status: Status) -> Response<Body> {
+        status.into_http()
+    }
+
+    /// Map a request from an [`AxumBody`] to a Tonic [`Body`]
+    fn map_request(request: Request<AxumBody>) -> Request<Body> {
+        let (parts, body) = request.into_parts();
+        Request::from_parts(parts, Body::new(body))
+    }
+
+    /// Extract just the path and query (i.e. not the `http://host:port` part)
+    fn extract_path_and_query(uri: &Uri) -> Result<Uri> {
+        Ok(
+            uri.path_and_query()
+                .map(|p| p.as_str())
+                .unwrap_or("/")
+                .parse()?
+        )
     }
 }
