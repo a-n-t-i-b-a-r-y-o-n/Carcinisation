@@ -12,12 +12,11 @@ pub trait PluginRoutesExt {
 impl PluginRoutesExt for Server {
     fn add_plugin_routes(&mut self) -> Router {
         // Get all plugins
-        let plugins = PluginManager::instance()
-            .plugins.read().unwrap();
+        let plugins = PluginManager::get_plugins();
 
         // Get all services from all plugins
         let mut services = plugins.iter()
-            .flat_map(|p| p.services.iter())
+            .flat_map(|p| p.get_services())
             .map(|s| s.to_owned())
             .collect::<Vec<_>>();
 

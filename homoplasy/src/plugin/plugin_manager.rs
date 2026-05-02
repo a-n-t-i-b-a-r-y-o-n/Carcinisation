@@ -2,11 +2,11 @@ use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::RwLock;
 
 use anyhow::{anyhow, Result};
 use convert_case::ccase;
 use lazy_static::lazy_static;
+use parking_lot::RwLock;
 use tempfile::TempDir;
 
 use morphology::package::{PackageV1, PluginPackage};
@@ -21,22 +21,21 @@ use crate::server::dynamic_named_service::DynamicNamedService;
 
 lazy_static! {
     // Static plugin manager singleton
-    static ref PLUGIN_MANAGER: PluginManager = PluginManager::new();
+    static ref SINGLETON: PluginManager = PluginManager::new();
 }
 
 /// Plugin loading interface
 #[derive(Clone)]
 pub struct PluginManager {
-    pub plugins: Arc<RwLock<Vec<Plugin>>>,
-    working_dir: Arc<TempDir>,
+    inner: Arc<PluginManagerInner>,
+}
+
+struct PluginManagerInner {
+    plugins: RwLock<Vec<Plugin>>,
+    working_dir: TempDir,
 }
 
 impl<'p> PluginManager {
-
-    /// Get the singleton instance
-    pub fn instance() -> &'p Self {
-        &*PLUGIN_MANAGER
-    }
 
     /// Create a new [`PluginManager`] instance
     fn new() -> Self {
@@ -46,8 +45,10 @@ impl<'p> PluginManager {
 
         // Return default, empty plugin manager
         PluginManager {
-            plugins: Arc::new(RwLock::new(vec!())),
-            working_dir: Arc::new(temp_dir),
+            inner: Arc::new(PluginManagerInner {
+                plugins: RwLock::new(vec!()),
+                working_dir: temp_dir,
+            })
         }
     }
 
@@ -161,15 +162,12 @@ impl<'p> PluginManager {
             let services = Self::parse_proto_files(&proto_path)?;
 
             // Build plugin object
-            let plugin = Plugin {
-                package,
-                services,
-                status: PluginStatus::NotStarted,
-            };
+            let plugin = Plugin::new(package, services);
 
             // Update singleton's plugin list
-            Self::instance().plugins
-                .write().unwrap()
+            (&*SINGLETON).inner
+                .plugins
+                .write()
                 .push(plugin);
 
             // Update plugin load counter
@@ -178,19 +176,27 @@ impl<'p> PluginManager {
 
         Ok(loaded_count)
     }
+    
+    /// Get the list of loaded plugins
+    pub fn get_plugins() -> Vec<Plugin> {
+        (&*SINGLETON).inner.plugins.read().to_owned()
+    }
 
     /// Initialize the plugin manager
     pub async fn start_plugins() -> Result<usize> {
 
-        let plugin_directory = Self::instance().working_dir.path().to_path_buf();
-        let mut plugins = Self::instance().plugins.write().unwrap();
+        let _self = &*SINGLETON.inner;
+        let plugin_directory = _self.working_dir.path().to_path_buf();
+        let mut plugins = _self.plugins.write();
 
         let mut started_count = 0;
         for plugin in plugins.iter_mut() {
+            // Package information
+            let package = plugin.get_package();
 
             // Get execution paths
-            let working_dir = plugin_directory.join(plugin.package.manifest.plugin_execution_dir());
-            let entrypoint = plugin_directory.join(plugin.package.manifest.plugin_entrypoint());
+            let working_dir = plugin_directory.join(package.manifest.plugin_execution_dir());
+            let entrypoint = plugin_directory.join(package.manifest.plugin_entrypoint());
 
             println!("Plugin ID entrypoint: {}", entrypoint.display());
 
@@ -203,10 +209,13 @@ impl<'p> PluginManager {
             // Communicate IPC channel info to plugin
             _ = CommunicationService::initialize_plugin_server(&mut process, port).await;
 
-            // TODO: Confirm server is up?
+            // Update the process associated with the plugin
+            *plugin.inner.process.write() = Some(process);
 
+            // TODO: Confirm server is up?
+            
             // Update plugin status
-            plugin.status = PluginStatus::Active;
+            *plugin.inner.status.write() = PluginStatus::Active;
 
             // Update started plugin counter
             started_count+=1;

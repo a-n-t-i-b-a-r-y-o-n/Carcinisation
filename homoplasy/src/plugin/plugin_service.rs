@@ -40,6 +40,7 @@ pub struct PluginService {
 struct PluginServiceInner {
     name: String,
     methods: Vec<PluginMethod>,
+    
 }
 
 /// RPC Service implemented in a plugin
