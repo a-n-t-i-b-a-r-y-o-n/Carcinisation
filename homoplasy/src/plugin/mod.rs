@@ -2,7 +2,6 @@ use morphology::package::PackageV1;
 use crate::plugin::plugin_service::PluginService;
 use crate::plugin::plugin_status::PluginStatus;
 
-mod plugin_id;
 pub mod plugin_manager;
 pub mod plugin_service;
 mod plugin_status;

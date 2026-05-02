@@ -14,13 +14,13 @@ impl PluginRoutesExt for Server {
         // Get all plugins
         let plugins = PluginManager::instance()
             .plugins.read().unwrap();
-        
+
         // Get all services from all plugins
         let mut services = plugins.iter()
             .flat_map(|p| p.services.iter())
             .map(|s| s.to_owned())
             .collect::<Vec<_>>();
-        
+
         // De-duplicate services by name, just in case
         services.dedup_by(|a, b| a.name() == b.name());
 

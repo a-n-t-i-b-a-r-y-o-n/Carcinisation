@@ -18,7 +18,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("[-] Starting plugins...");
     
-    PluginManager::start_plugins().await;
+    PluginManager::start_plugins().await?;
 
     Server::builder()
         .add_plugin_routes()

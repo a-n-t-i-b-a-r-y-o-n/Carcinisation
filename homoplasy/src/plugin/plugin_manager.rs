@@ -11,7 +11,9 @@ use tempfile::TempDir;
 
 use morphology::package::{PackageV1, PluginPackage};
 use morphology::package::manifest::PackageManifest;
-
+use phenotype::services::communication_service::CommunicationService;
+use phenotype::services::execution_service::ExecutionService;
+use phenotype::services::port_service::PortService;
 use crate::plugin::Plugin;
 use crate::plugin::plugin_service::PluginService;
 use crate::plugin::plugin_status::PluginStatus;
@@ -30,7 +32,7 @@ pub struct PluginManager {
 }
 
 impl<'p> PluginManager {
-    
+
     /// Get the singleton instance
     pub fn instance() -> &'p Self {
         &*PLUGIN_MANAGER
@@ -125,10 +127,10 @@ impl<'p> PluginManager {
                 }
             }
         }
-        
+
         // De-duplicate any added services by name
         services.dedup_by(|a, b| a.name() == b.name());
-        
+
         Ok(services)
     }
 
@@ -154,7 +156,7 @@ impl<'p> PluginManager {
 
             // Get extracted proto directory
             let proto_path = extract_root.join(package.manifest.plugin_proto_dir());
-            
+
             // Parse protos to services
             let services = Self::parse_proto_files(&proto_path)?;
 
@@ -169,7 +171,7 @@ impl<'p> PluginManager {
             Self::instance().plugins
                 .write().unwrap()
                 .push(plugin);
-            
+
             // Update plugin load counter
             loaded_count+=1;
         }
@@ -178,22 +180,38 @@ impl<'p> PluginManager {
     }
 
     /// Initialize the plugin manager
-    pub async fn start_plugins() {
+    pub async fn start_plugins() -> Result<usize> {
 
         let plugin_directory = Self::instance().working_dir.path().to_path_buf();
-        let plugins = Self::instance().plugins.write().unwrap();
+        let mut plugins = Self::instance().plugins.write().unwrap();
 
-        for plugin in plugins.iter() {
-            
+        let mut started_count = 0;
+        for plugin in plugins.iter_mut() {
+
+            // Get execution paths
+            let working_dir = plugin_directory.join(plugin.package.manifest.plugin_execution_dir());
             let entrypoint = plugin_directory.join(plugin.package.manifest.plugin_entrypoint());
-            
-            // TODO: Launch the plugin binary (probably async)
 
-            // TODO: Establish a connection to IPC (async)
+            println!("Plugin ID entrypoint: {}", entrypoint.display());
 
-            // TODO: Send start command via IPC (async)
+            // Get port number for plugin server
+            let port = PortService::request_port_assignment()?;
 
-            // TODO: Confirm server is up (async)
+            // Start the plugin binary
+            let mut process = ExecutionService::start_plugin_server(&entrypoint, &working_dir)?;
+
+            // Communicate IPC channel info to plugin
+            _ = CommunicationService::initialize_plugin_server(&mut process, port).await;
+
+            // TODO: Confirm server is up?
+
+            // Update plugin status
+            plugin.status = PluginStatus::Active;
+
+            // Update started plugin counter
+            started_count+=1;
         }
+
+        Ok(started_count)
     }
 }

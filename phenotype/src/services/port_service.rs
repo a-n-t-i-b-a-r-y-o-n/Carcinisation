@@ -8,7 +8,7 @@ lazy_static! {
 
 const FIRST_PORT: u32 = 9001;
 
-pub struct PortService { }
+pub struct PortService;
 
 impl PortService {
     

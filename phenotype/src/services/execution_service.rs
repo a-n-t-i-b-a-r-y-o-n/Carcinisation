@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use tokio::process::{Child, Command};
 
 
-pub struct ExecutionService { }
+pub struct ExecutionService;
 
 impl ExecutionService {
 

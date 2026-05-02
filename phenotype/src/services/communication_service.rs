@@ -10,7 +10,7 @@ use crate::protocol::message::{
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 use tokio::process::Child;
 
-pub struct CommunicationService { }
+pub struct CommunicationService;
 
 impl CommunicationService {
 
