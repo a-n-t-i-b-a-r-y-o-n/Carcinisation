@@ -164,6 +164,8 @@ impl<'p> PluginManager {
             // Parse protos to services
             let services = Self::parse_proto_files(&proto_path)?;
 
+            println!("[-] Loaded plugin: {}", package.manifest.plugin_name());
+
             // Build plugin object
             let plugin = Plugin::new(package, services, port_number);
 
@@ -204,7 +206,7 @@ impl<'p> PluginManager {
             let working_dir = plugin_directory.join(package.manifest.plugin_execution_dir());
             let entrypoint = plugin_directory.join(package.manifest.plugin_entrypoint());
 
-            println!("Plugin entrypoint: {}", entrypoint.display());
+            println!("[-] Plugin entrypoint: {}", entrypoint.display());
 
             // Set server port for proxy plugin service
             for service in plugin.inner.services.lock().iter_mut() {
