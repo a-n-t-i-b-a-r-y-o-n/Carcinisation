@@ -1,7 +1,8 @@
 use std::{fs, io};
+use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use anyhow::anyhow;
 use anyhow::Result;
 use convert_case::ccase;
@@ -22,6 +23,7 @@ type ArchiveFormat = Archive<XzDecoder<File>>;
 type ArchiveFormatBuilder = Builder<AutoFinishXzEncoder<File>>;
 
 /// Version 1 of the plugin package format
+#[derive(Clone)]
 pub struct PackageV1 {
     pub manifest: PackageManifestV1,
     pub file: PathBuf,
@@ -34,7 +36,37 @@ impl PluginPackage<PackageV1, PackageManifestV1> for PackageV1 {
         self.manifest.clone()
     }
 
-    fn extract_file(&mut self, filename: &str) -> Result<TempFile> {
+    fn extract_file<S>(&mut self, path_inside_archive: &S) -> Result<TempFile>
+    where
+        S: AsRef<OsStr> + AsRef<Path> + ?Sized
+    {
+        // Create temporary output file
+        let mut temp_file = TempFile::new()?;
+
+        // Get homogenous, sized representations both paths
+        let path_in = PathBuf::from(path_inside_archive);
+        let path_out = PathBuf::from(temp_file.path());
+        
+        // Write all contents
+        match self.extract_file_to(&path_in, &path_out) {
+            Ok(_) => {
+                // Seek back to file start
+                temp_file.seek(SeekFrom::Start(0))?;
+                
+                // Return created file
+                Ok(temp_file)
+            }
+            Err(e) => Err(anyhow!(e))
+        }
+    }
+
+    fn extract_file_to<S>(&mut self, path_inside_archive: &S, path_outside_archive: &S) -> Result<PathBuf>
+    where
+        S: AsRef<OsStr> + AsRef<Path>
+    {
+        // Make filenames proper paths
+        let path_in = PathBuf::from(path_inside_archive);
+        let path_out = PathBuf::from(path_outside_archive);
 
         // Open the archive
         let archive: &mut ArchiveFormat = &mut Self::open_archive(&self.file)?;
@@ -43,7 +75,7 @@ impl PluginPackage<PackageV1, PackageManifestV1> for PackageV1 {
         let mut entries = archive.entries()?;
 
         // Try to find the entry by its file path
-        let file_entry = Self::find_entry(&mut entries, filename);
+        let file_entry = Self::find_entry(&mut entries, &path_in);
 
         // Return error if not found
         if file_entry.is_none() {
@@ -53,35 +85,51 @@ impl PluginPackage<PackageV1, PackageManifestV1> for PackageV1 {
         // Unwrap found entry
         let file_entry = file_entry.unwrap();
 
-        // Create temporary output file
-        let mut temp_file = TempFile::new()?;
-
-        // Unpack raw data into temp file
+        // Unpack raw data into given file
         {
+            // Open output file
+            let file = File::create(&path_out)?;
+            
+            // Create reader/writer
             let mut reader = BufReader::new(file_entry);
-            let mut writer = BufWriter::new(&temp_file);
+            let mut writer = BufWriter::new(file);
 
+            // Copy all data
             io::copy(&mut reader, &mut writer)?;
             writer.flush()?;
         }
 
-        temp_file.seek(SeekFrom::Start(0))?;
-
-        Ok(temp_file)
+        Ok(path_out)
     }
 
-    fn extract_dir(&mut self, filename: &str) -> Result<TempDir> {
-        // Ensure directory path ends with '/'
-        let mut path_in_archive = String::from(filename);
-        if !path_in_archive.ends_with('/') {
-            path_in_archive.push('/');
+    fn extract_dir<S>(&mut self, path_inside_archive: &S) -> Result<TempDir>
+    where
+        S: AsRef<OsStr> + AsRef<Path> + ?Sized
+    {
+        // Create temp output dir
+        let temp_dir = tempfile::tempdir()?;
+
+        // Get homogenous, sized representations both paths
+        let path_in = PathBuf::from(path_inside_archive);
+        let path_out = PathBuf::from(temp_dir.path());
+        
+        // Extract into temp directory
+        match self.extract_dir_to(&path_in, &path_out) {
+            Ok(_) => Ok(temp_dir),
+            Err(e) => Err(anyhow!(e))
         }
+    }
+
+    fn extract_dir_to<S>(&mut self, path_inside_archive: &S, path_outside_archive: &S) -> Result<PathBuf>
+    where
+        S: AsRef<OsStr> + AsRef<Path>
+    {
+        // Make filenames proper paths
+        let path_in = PathBuf::from(path_inside_archive);
+        let path_out = PathBuf::from(path_outside_archive);
 
         // Open the archive
         let archive: &mut ArchiveFormat = &mut Self::open_archive(&self.file)?;
-
-        // Create temp output dir
-        let temp_dir = tempfile::tempdir()?;
 
         // Get list of all entries in the archive
         let entries = archive.entries()?;
@@ -90,11 +138,11 @@ impl PluginPackage<PackageV1, PackageManifestV1> for PackageV1 {
         for entry in entries.filter(|e| e.is_ok()) {
             let mut entry = entry?;
 
-            if !entry.path()?.starts_with(&path_in_archive) {
+            if !entry.path()?.starts_with(&path_in) {
                 continue;
             }
 
-            entry.unpack_in(temp_dir.path())?;
+            entry.unpack_in(&path_out)?;
             unpacked += 1;
         }
 
@@ -102,11 +150,15 @@ impl PluginPackage<PackageV1, PackageManifestV1> for PackageV1 {
             Err(anyhow!("Directory not found in archive"))
         }
         else {
-            Ok(temp_dir)
+            Ok(path_out)
         }
     }
 
-    fn read(path: &PathBuf) -> Option<PackageV1> {
+    fn read<S>(path: &S) -> Option<PackageV1>
+    where
+        S: AsRef<OsStr> + AsRef<Path> + ?Sized
+    {
+        let path = Path::new(path);
         if !path.exists() {
             println!("Package file {:?} does not exist!", path);
 
@@ -117,7 +169,7 @@ impl PluginPackage<PackageV1, PackageManifestV1> for PackageV1 {
             Ok(mut archive) => {
                 let mut entries = archive.entries().unwrap();
 
-                match Self::find_entry(&mut entries, "manifest.json") {
+                match Self::find_entry(&mut entries, Path::new("manifest.json")) {
                     None => {
                         println!("No manifest found!");
 
@@ -148,8 +200,11 @@ impl PluginPackage<PackageV1, PackageManifestV1> for PackageV1 {
     }
 
     /// Write a given plugin package to the given output directory
-    fn write(&self, path: &PathBuf) -> Result<()> {
-
+    fn write<S>(&self, path: &S) -> Result<()>
+    where
+        S: AsRef<OsStr> + AsRef<Path> + ?Sized
+    {
+        let path = Path::new(path);
         let output_directory = path.canonicalize()?;
 
         let package_name = ccase!(snake, &self.manifest.plugin_name());

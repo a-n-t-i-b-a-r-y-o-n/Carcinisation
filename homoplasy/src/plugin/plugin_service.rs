@@ -2,6 +2,7 @@ use std::convert::Infallible;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::process::Command;
+use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::thread::sleep;
 use std::time::Duration;
@@ -35,6 +36,10 @@ pub struct PluginMethod {
 
 #[derive(Clone)]
 pub struct PluginService {
+    inner: Arc<PluginServiceInner>
+}
+
+struct PluginServiceInner {
     name: String,
     methods: Vec<PluginMethod>,
 }
@@ -121,8 +126,10 @@ impl PluginService {
                 // Add to the list of returned services
                 services.push(
                     PluginService {
-                        name: service.full_name().to_string(),
-                        methods,
+                        inner: Arc::new(PluginServiceInner {
+                            name: service.full_name().to_string(),
+                            methods,
+                        })
                     }
                 );
             }
@@ -136,7 +143,7 @@ impl PluginService {
 
 /// Service name for request routing
 impl DynamicNamedService for PluginService {
-    fn name(&self) -> &str { &self.name }
+    fn name(&self) -> &str { &self.inner.name }
 }
 
 impl Service<Request<AxumBody>> for PluginService {
@@ -155,8 +162,8 @@ impl Service<Request<AxumBody>> for PluginService {
         let full_path = req.uri().path().to_owned();
 
         // Copy required service info to owned
-        let service_name = self.name.to_owned();
-        let methods = self.methods.to_owned();
+        let service_name = self.inner.name.to_owned();
+        let methods = self.inner.methods.to_owned();
 
         // Remove the leading service name and make the result owned
         let service_prefix = format!("/{}/", service_name);

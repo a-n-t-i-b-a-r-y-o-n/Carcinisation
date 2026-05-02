@@ -7,6 +7,15 @@ edition = "2024"
 # Results
 anyhow = "1.0"
 
+# Enums
+strum = "0.28.0"
+strum_macros = "0.28.0"
+
+# Serialization
+convert_case = "0.11"
+serde = { version = "1.0", features = ["derive"] }
+serde_repr = "0.1"
+
 # HTTP
 tonic = "0.14"
 tower = "0.5"
@@ -27,3 +36,7 @@ prost-reflect = "0.16"
 
 # Temporary files
 tempfile = "3"
+
+# Internal crates
+morphology = { path = "../morphology" }
+phenotype = { path = "../phenotype" }

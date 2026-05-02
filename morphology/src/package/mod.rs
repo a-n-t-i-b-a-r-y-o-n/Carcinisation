@@ -1,6 +1,7 @@
 pub mod v1;
 pub mod manifest;
 
+use std::ffi::OsStr;
 pub use anyhow::Result;
 
 pub use tempfile::TempDir;
@@ -13,7 +14,7 @@ pub use crate::package::{
 };
 
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use strum_macros::{EnumString, VariantNames};
 
@@ -39,14 +40,26 @@ pub trait PluginPackage<TPackage, TManifest> {
     fn manifest(&self) -> TManifest;
 
     /// Extract a file from the package
-    fn extract_file(&mut self, path_in_archive: &str) -> Result<TempFile>;
+    fn extract_file<S>(&mut self, path_inside_archive: &S) -> Result<TempFile>
+    where S: AsRef<OsStr> + AsRef<Path> + ?Sized;
 
-    // Extract a directory from the package
-    fn extract_dir(&mut self, path_in_archive: &str) -> Result<TempDir>;
+    /// Extract a file from the package to a given directory
+    fn extract_file_to<S>(&mut self, path_inside_archive: &S, path_outside_archive: &S) -> Result<PathBuf>
+    where S: AsRef<OsStr> + AsRef<Path>;
+
+    /// Extract a directory from the package
+    fn extract_dir<S>(&mut self, path_inside_archive: &S) -> Result<TempDir>
+    where S: AsRef<OsStr> + AsRef<Path> + ?Sized;
+
+    /// Extract a directory from the package to a given directory
+    fn extract_dir_to<S>(&mut self, path_inside_archive: &S, path_outside_archive: &S) -> Result<PathBuf>
+    where S: AsRef<OsStr> + AsRef<Path>;
 
     /// Read the plugin package from disk
-    fn read(path: &PathBuf) -> Option<TPackage>;
+    fn read<S>(path: &S) -> Option<TPackage>
+    where S: AsRef<OsStr> + AsRef<Path> + ?Sized;
 
     /// Write the plugin package to disk
-    fn write(&self, path: &PathBuf) -> Result<()>;
+    fn write<S>(&self, path: &S) -> Result<()>
+    where S: AsRef<OsStr> + AsRef<Path> + ?Sized;
 }

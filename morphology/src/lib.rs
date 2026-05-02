@@ -1,4 +1,4 @@
-mod package;
+pub mod package;
 
 
 #[test]

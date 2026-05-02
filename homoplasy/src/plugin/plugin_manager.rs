@@ -1,60 +1,199 @@
-use std::collections::HashMap;
+use std::ffi::OsStr;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::{RwLock, RwLockReadGuard};
 
+use anyhow::{anyhow, Result};
+use convert_case::ccase;
 use lazy_static::lazy_static;
-use parking_lot::Mutex;
-use tonic::transport::server::Router;
+use tempfile::TempDir;
 
-use crate::plugin::plugin_id::PluginID;
+use morphology::package::{PackageV1, PluginPackage};
+use morphology::package::manifest::PackageManifest;
+
+use crate::plugin::Plugin;
 use crate::plugin::plugin_service::PluginService;
+use crate::plugin::plugin_status::PluginStatus;
+use crate::server::dynamic_named_service::DynamicNamedService;
 
 lazy_static! {
-    // Static list of plugin connections
-    pub static ref PLUGIN_SERVICES: HashMap<PluginID, Mutex<Box<()>>> = HashMap::new();
+    // Static plugin manager singleton
+    static ref PLUGIN_MANAGER: PluginManager = PluginManager::new();
 }
 
 /// Plugin loading interface
-pub struct PluginManager { }
+#[derive(Clone)]
+pub struct PluginManager {
+    pub plugins: Arc<RwLock<Vec<Plugin>>>,
+    working_dir: Arc<TempDir>,
+}
 
-impl PluginManager {
+impl<'p> PluginManager {
+    
+    /// Get the singleton instance
+    pub fn instance() -> &'p Self {
+        &*PLUGIN_MANAGER
+    }
 
-    /// Initialize the plugin manager
-    pub async fn init(&mut self) {
+    /// Create a new [`PluginManager`] instance
+    fn new() -> Self {
+        // Create scratch directory for live plugins
+        let temp_dir = TempDir::with_prefix("plugins-")
+            .expect("Failed to create working directory for PluginManager");
 
-        // TODO: Load plugins at runtime
-        /*
-        // Mutable plugin connectors
-        let mut connectors = (&*crate::plugin::generated::PLUGIN_CONNECTORS).iter()
-            .map(|(_, pc)| pc.lock())
+        // Return default, empty plugin manager
+        PluginManager {
+            plugins: Arc::new(RwLock::new(vec!())),
+            working_dir: Arc::new(temp_dir),
+        }
+    }
+
+    /// Build the list of package files in the given folder
+    fn enumerate_packages(package_folder: &Path) -> Result<Vec<PackageV1>> {
+        // Enumerate valid packages in the given directory
+        let packages = fs::read_dir(package_folder)?
+            // Filter readable `.tar.xz` files
+            .filter_map(|entry| {
+                match entry.as_ref() {
+                    Ok(file) if file.file_type().is_ok_and(|f| f.is_file()) &&
+                        file.file_name().to_ascii_lowercase().to_str()?.ends_with(".tar.xz")
+                    => Some(file.path()),
+                    _ => None,
+                }
+            })
+            // Read and parse the package into a Plugin
+            .filter_map(|path| PackageV1::read(&path))
             .collect::<Vec<_>>();
 
-        // Handles to plugin connector init functions
-        let handles = connectors.iter_mut()
-            .map(|h| h.init());
-
-        // Initialize all the plugins
-        futures::future::join_all(handles).await;
-
-         */
-    }
-    
-    pub fn get_services(&self) -> Vec<PluginService> {
-        
-        // TODO: Return list of services at runtime
-        vec!()
+        Ok(packages)
     }
 
-    /// Add tonic gRPC services from plugins to a Router
-    pub fn add_tonic_services(&self, builder: Router) -> Router {
+    /// Extract the important contents from the package
+    fn extract_package(package: &mut PackageV1, extraction_root: &Path) -> Result<PathBuf> {
+        // Get output directory name from plugin name
+        let package_name = ccase!(snake, &package.manifest.plugin_name());
+        let package_dir = extraction_root.join(&package_name);
 
-        /*
-
-        let mut builder = builder;
-        for (_, pc) in (&*crate::plugin::generated::PLUGIN_CONNECTORS).iter() {
-            builder = pc.lock().add_tonic_services(builder);
+        // Delete existing plugin directory if necessary
+        if package_dir.exists() {
+            if let Err(e) = fs::remove_dir_all(&package_dir) {
+                return Err(anyhow!(e))
+            }
+        }
+        // Create new plugin directory
+        if let Err(e) = fs::create_dir(&package_dir) {
+            return Err(anyhow!(e))
         }
 
-         */
+        // Extract proto files directory
+        let proto_path = PathBuf::from(package.manifest.plugin_proto_dir());
+        let _ = package.extract_dir_to(&proto_path, &package_dir)?;
 
-        builder
+        // Extract entrypoint directory
+        let entrypoint_path = PathBuf::from(package.manifest.plugin_execution_dir());
+        let _ = package.extract_dir_to(&entrypoint_path, &package_dir)?;
+
+        Ok(package_dir)
+    }
+
+    /// Parse the directory of proto files into a list of services from each file
+    fn parse_proto_files(proto_dir: &PathBuf) -> Result<Vec<PluginService>> {
+        // Select protobuf files
+        let protos = fs::read_dir(proto_dir)?
+            .filter_map(|entry| {
+                match entry.as_ref() {
+                    Ok(file) if file.file_type().is_ok_and(|f| f.is_file()) &&
+                        file.file_name().to_ascii_lowercase().to_str()?.ends_with(".proto")
+                    => Some(file.path()),
+                    _ => None,
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let mut services = vec!();
+        for proto in protos {
+
+            // Parse services from proto file
+            match PluginService::new_from_proto(&proto) {
+                Ok(mut proto_services) => {
+                    services.append(&mut proto_services);
+                }
+                Err(e) => {
+                    // Gracefully handle the error
+                    println!("Error parsing proto \"{}\": {:#?}", proto.display(), e)
+                }
+            }
+        }
+        
+        // De-duplicate any added services by name
+        services.dedup_by(|a, b| a.name() == b.name());
+        
+        Ok(services)
+    }
+
+    /// Load the plugins from disk
+    pub async fn load_plugins<S>(plugin_folder: &S) -> Result<usize>
+    where
+        S: AsRef<OsStr> + AsRef<Path>
+    {
+        let path = Path::new(plugin_folder);
+        if !path.exists() {
+            return Err(anyhow!("Plugin folder \"{}\" does not exist", path.display()));
+        }
+
+        // Get list of package files
+        let packages = Self::enumerate_packages(&path)?;
+
+        // Build list of plugins from packages
+        let mut loaded_count = 0;
+        for mut package in packages {
+
+            // Extract relevant package contents
+            let extract_root = Self::extract_package(&mut package, path)?;
+
+            // Get extracted proto directory
+            let proto_path = extract_root.join(package.manifest.plugin_proto_dir());
+            
+            // Parse protos to services
+            let services = Self::parse_proto_files(&proto_path)?;
+
+            // Build plugin object
+            let plugin = Plugin {
+                package,
+                services,
+                status: PluginStatus::NotStarted,
+            };
+
+            // Update singleton's plugin list
+            Self::instance().plugins
+                .write().unwrap()
+                .push(plugin);
+            
+            // Update plugin load counter
+            loaded_count+=1;
+        }
+
+        Ok(loaded_count)
+    }
+
+    /// Initialize the plugin manager
+    pub async fn start_plugins() {
+
+        let plugin_directory = Self::instance().working_dir.path().to_path_buf();
+        let plugins = Self::instance().plugins.write().unwrap();
+
+        for plugin in plugins.iter() {
+            
+            let entrypoint = plugin_directory.join(plugin.package.manifest.plugin_entrypoint());
+            
+            // TODO: Launch the plugin binary (probably async)
+
+            // TODO: Establish a connection to IPC (async)
+
+            // TODO: Send start command via IPC (async)
+
+            // TODO: Confirm server is up (async)
+        }
     }
 }
