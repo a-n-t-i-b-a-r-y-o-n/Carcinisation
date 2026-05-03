@@ -1,4 +1,5 @@
 use std::convert::Infallible;
+use std::error::Error;
 use std::future::poll_fn;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -18,7 +19,7 @@ use tonic::service::AxumBody;
 use tonic::{Code, Status};
 use tonic::transport::{Channel, Endpoint, Uri};
 use tower_service::Service;
-use crate::server::dynamic_named_service::DynamicNamedService;
+use crate::server::Named;
 
 #[derive(Clone)]
 pub struct PluginRequest {
@@ -170,10 +171,11 @@ impl PluginService {
 }
 
 /// Service name for request routing
-impl DynamicNamedService for PluginService {
+impl Named for PluginService {
     fn name(&self) -> &str { &self.inner.name }
 }
 
+/// Make each plugin service a usable Tonic service
 impl Service<Request<AxumBody>> for PluginService {
     type Response = Response<Body>;
     type Error = Infallible;
@@ -223,16 +225,14 @@ impl Service<Request<AxumBody>> for PluginService {
 
             // Handle unimplemented methods
             if !inner.methods.read().iter().any(|m| m.name == method_name) {
-                let status = Self::map_status(
-                    Status::new(
-                        Code::Unimplemented,
-                        format!(
-                            "Unknown method {} on service {}.",
-                            method_name,
-                            inner.name,
-                        ),
-                    )
-                );
+                let status = Status::new(
+                    Code::Unimplemented,
+                    format!(
+                        "Unknown method {} on service {}.",
+                        method_name,
+                        inner.name,
+                    ),
+                ).into_http();
 
                 return Ok(status);
             }
@@ -240,42 +240,40 @@ impl Service<Request<AxumBody>> for PluginService {
             // Get a handle on the channel
             let mut channel = match inner.channel.read().clone() {
                 None => {
-                    let status = Self::map_status(
-                        Status::new(
-                            Code::Unavailable,
-                            format!("Service {} plugin not yet started", inner.name),
-                        )
-                    );
+                    let status = Status::new(
+                        Code::Unavailable,
+                        format!("Service {} plugin not yet started", inner.name),
+                    ).into_http();
 
                     return Ok(status);
                 }
                 Some(c) => c
             };
+            
+            // Extract request URI path and query
+            let path_and_query = req.uri().path_and_query()
+                .map(|p| p.as_str())
+                .unwrap_or("/")
+                .parse();
 
             // Rewrite the request URI
-            *req.uri_mut() = match Self::extract_path_and_query(req.uri()) {
-                Err(e) => {
-                    let status = Self::map_status(
-                        Status::new(
-                            Code::Internal,
-                            format!("Failed to map URI: {e}"),
-                        )
-                    );
-
-                    return Ok(status);
-                }
+            *req.uri_mut() = match path_and_query {
                 Ok(uri) => uri,
+                Err(e) => {
+                    // Return failure
+                    return Ok(Self::map_error(e))
+                }
             };
 
-            // Poll until plugin server is ready
+            // Try to poll the server until ready
             if let Err(e) = poll_fn(|cx| Channel::poll_ready(&mut channel, cx)).await {
-                return Ok(Self::map_status(Status::from_error(Box::new(e))));
+                return Ok(Self::map_error(e));
             }
 
             // Proxy request to plugin and return response
             match channel.call(req).await {
                 Ok(response) => Ok(response),
-                Err(e) => Ok(Self::map_status(Status::from_error(Box::new(e))))
+                Err(e) => Ok(Self::map_error(e))
             }
         };
 
@@ -286,24 +284,17 @@ impl Service<Request<AxumBody>> for PluginService {
 }
 
 impl PluginService {
-    /// Map a Tonic [`Status`] to an HTTP response
-    fn map_status(status: Status) -> Response<Body> {
-        status.into_http()
+    /// Map a generic error to an HTTP response
+    fn map_error<E>(error: E) -> Response<Body>
+    where
+        E: Error + Send + Sync + 'static
+    {
+        Status::from_error(Box::new(error)).into_http()
     }
 
     /// Map a request from an [`AxumBody`] to a Tonic [`Body`]
     fn map_request(request: Request<AxumBody>) -> Request<Body> {
         let (parts, body) = request.into_parts();
         Request::from_parts(parts, Body::new(body))
-    }
-
-    /// Extract just the path and query (i.e. not the `http://host:port` part)
-    fn extract_path_and_query(uri: &Uri) -> Result<Uri> {
-        Ok(
-            uri.path_and_query()
-                .map(|p| p.as_str())
-                .unwrap_or("/")
-                .parse()?
-        )
     }
 }

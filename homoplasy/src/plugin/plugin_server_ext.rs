@@ -1,8 +1,7 @@
 use tonic::transport::Server;
 use tonic::transport::server::Router;
 use crate::plugin::plugin_manager::PluginManager;
-use crate::server::dynamic_named_service::DynamicNamedService;
-use crate::server::DynamicRoutesExt;
+use crate::server::{DynamicRoutesExt, Named};
 
 /// Extension trait for [`Server`] allowing plugin route creation
 pub trait PluginRoutesExt {

@@ -17,7 +17,7 @@ use phenotype::services::port_service::PortService;
 use crate::plugin::Plugin;
 use crate::plugin::plugin_service::PluginService;
 use crate::plugin::plugin_status::PluginStatus;
-use crate::server::dynamic_named_service::DynamicNamedService;
+use crate::server::Named;
 
 lazy_static! {
     // Static plugin manager singleton
@@ -89,9 +89,6 @@ impl<'p> PluginManager {
             return Err(anyhow!(e))
         }
 
-        // Update plugin with extraction info
-
-
         // Extract proto files directory
         let proto_path = PathBuf::from(package.manifest.plugin_proto_dir());
         let _ = package.extract_dir_to(&proto_path, &package_dir)?;
@@ -117,6 +114,7 @@ impl<'p> PluginManager {
             })
             .collect::<Vec<_>>();
 
+        // Parse all services
         let mut services = vec!();
         for proto in protos {
 

@@ -7,7 +7,10 @@ use tonic::transport::Server;
 use tonic::transport::server::Router;
 use tower_service::Service;
 
-use crate::server::dynamic_named_service::DynamicNamedService;
+/// Thing with a name. Essentially [`tonic::server::NamedService`] but without the `const`.
+pub trait Named {
+    fn name(&self) -> &str;
+}
 
 /// Extension trait for [`Server`] allowing runtime route creation
 pub trait DynamicRoutesExt {
@@ -16,7 +19,7 @@ pub trait DynamicRoutesExt {
     fn add_dynamic_routes<S>(&mut self, services: Vec<S>) -> Router
     where
         S: Service<Request<AxumBody>, Response = Response<Body>, Error = Infallible>
-        + DynamicNamedService
+        + Named
         + Clone
         + Send
         + Sync
@@ -28,7 +31,7 @@ impl DynamicRoutesExt for Server {
     fn add_dynamic_routes<S>(&mut self, services: Vec<S>) -> Router
     where
         S: Service<Request<AxumBody>, Response = Response<Body>, Error = Infallible>
-        + DynamicNamedService
+        + Named
         + Clone
         + Send
         + Sync
