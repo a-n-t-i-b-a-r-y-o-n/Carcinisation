@@ -6,7 +6,7 @@ fn package_dump() {
     use std::path::Path;
     use crate::package::PackageV1;
 
-    let path = Path::new("test/test_input/package_test_package_1.tar.xz").to_path_buf();
+    let path = Path::new("tests/test_input/package_test_package_1.tar.xz").to_path_buf();
     let archive = PackageV1::open_archive(&path);
 
     assert!(archive.is_ok());
@@ -38,7 +38,7 @@ fn test_writing() {
         PackageManifestV1,
     };
 
-    let path = Path::new("test/test_input").to_path_buf();
+    let path = Path::new("tests/test_input").to_path_buf();
     let manifest_content = r#"{
     "manifest_version": 1,
     "package_version": 1,
@@ -53,7 +53,7 @@ fn test_writing() {
 
     let package = PackageV1 {
         manifest,
-        file: Path::new("test/test_input/package_plugin_contract_test.tar.xz").to_path_buf(),
+        file: Path::new("tests/test_input/package_plugin_contract_test.tar.xz").to_path_buf(),
     };
 
     match package.write(&path) {
@@ -75,7 +75,7 @@ fn test_reading() {
     use crate::package::PluginPackage;
     use crate::package::manifest::PackageManifest;
 
-    let path = Path::new("test/test_input/package_plugin_contract_test.tar.xz").to_path_buf();
+    let path = Path::new("tests/test_input/package_plugin_contract_test.tar.xz").to_path_buf();
 
     match PackageV1::read(&path) {
         Some(package) => {
@@ -99,7 +99,7 @@ fn test_file_extraction() {
     use crate::package::PackageManifestV1;
     use crate::package::PluginPackage;
 
-    let path = Path::new("test/test_input/package_plugin_contract_test.tar.xz").to_path_buf();
+    let path = Path::new("tests/test_input/package_plugin_contract_test.tar.xz").to_path_buf();
     let manifest_content = r#"{
     "manifest_version": 1,
     "package_version": 1,
@@ -144,7 +144,7 @@ fn test_dir_extraction() {
     use crate::package::v1::PackageV1;
     use crate::package::PluginPackage;
 
-    let path = Path::new("test/test_input/package_test_package_1.tar.xz").to_path_buf();
+    let path = Path::new("tests/test_input/package_test_package_1.tar.xz").to_path_buf();
     let package = PackageV1::read(&path);
 
     assert!(package.is_some());
