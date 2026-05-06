@@ -7,7 +7,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let addr = "[::1]:50052".parse()?;
     
-    let plugin_dir = "/media/medium/Projects/muonium/source/experiments/rust/plugin_test_3/plugins";
+    let plugin_dir = "/media/medium/Projects/muonium/source/experiments/rust/plugin_test_4/plugins/speaker/target/debug/plugin_package";
 
     println!("[+] Loading plugins from \"{}\"...", plugin_dir);
 
