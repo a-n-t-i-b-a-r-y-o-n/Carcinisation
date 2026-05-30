@@ -9,9 +9,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     let plugin_dir_1 = "/media/medium/Projects/muonium/source/experiments/rust/plugin_test_4/plugins/speaker/target/debug/plugin_package";
     let plugin_dir_2 = "/media/medium/Projects/muonium/source/experiments/rust/plugin_test_4/plugins/microphone/target/debug/plugin_package";
+    let plugin_dir_3 = "/media/medium/Projects/muonium/source/experiments/rust/plugin_test_4/plugins/vad/target/debug/plugin_package";
+    let plugin_dir_4 = "/media/medium/Projects/muonium/source/experiments/rust/plugin_test_4/plugins/wakeword/target/debug/plugin_package";
 
     let mut plugin_count = 0;
-    for plugin_dir in [plugin_dir_1, plugin_dir_2] {
+    for plugin_dir in [plugin_dir_1, plugin_dir_2, plugin_dir_3, plugin_dir_4] {
         println!("[+] Loading plugins from \"{}\"...", plugin_dir);
          plugin_count += PluginManager::load_plugins(&plugin_dir).await?;
     }
