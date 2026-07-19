@@ -6,8 +6,8 @@ use homoplasy::plugin::plugin_server_ext::PluginRoutesExt;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let port = 50052;
-    let addr = format!("[::1]:{}", port).parse()?;
-    
+    let addr = format!("[::]:{}", port).parse()?;
+
     let plugin_dir_1 = "/media/medium/Projects/muonium/source/experiments/rust/plugin_test_4/plugins/speaker/target/debug/plugin_package";
     let plugin_dir_2 = "/media/medium/Projects/muonium/source/experiments/rust/plugin_test_4/plugins/microphone/target/debug/plugin_package";
     let plugin_dir_3 = "/media/medium/Projects/muonium/source/experiments/rust/plugin_test_4/plugins/vad/target/debug/plugin_package";
