@@ -153,11 +153,13 @@ impl<'p> PluginManager {
         // Get list of package files
         let packages = Self::enumerate_packages(&packages_folder)?;
 
-        // Build list of plugins from packages
+        // Build list of plugins by loading each package
         let mut loaded_count = 0;
         for mut package in packages {
 
-            // Extract relevant package contents
+            println!("[-] Loading package: {:?}", &package.file.file_name().unwrap());
+
+            // Extract documented package contents
             let extract_root = Self::extract_package(&mut package, extraction_dir)?;
 
             // Get extracted proto directory
@@ -169,7 +171,7 @@ impl<'p> PluginManager {
             // Parse protos to services
             let services = Self::parse_proto_files(&proto_path)?;
 
-            println!("[-] Loaded plugin: {}", package.manifest.plugin_name());
+            println!("[-] Loaded plugin: {} v{}", package.manifest.plugin_name(), package.manifest.plugin_version());
 
             // Build plugin object
             let plugin = Plugin::new(package, services, port_number, extract_root);

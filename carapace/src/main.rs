@@ -8,16 +8,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let port = 50052;
     let addr = format!("[::]:{}", port).parse()?;
 
-    let plugin_dir_1 = "/media/medium/Projects/muonium/source/experiments/rust/plugin_test_4/plugins/speaker/target/debug/plugin_package";
-    let plugin_dir_2 = "/media/medium/Projects/muonium/source/experiments/rust/plugin_test_4/plugins/microphone/target/debug/plugin_package";
-    let plugin_dir_3 = "/media/medium/Projects/muonium/source/experiments/rust/plugin_test_4/plugins/vad/target/debug/plugin_package";
-    let plugin_dir_4 = "/media/medium/Projects/muonium/source/experiments/rust/plugin_test_4/plugins/wakeword/target/debug/plugin_package";
-    let plugin_dir_5 = "/media/medium/Projects/muonium/source/experiments/rust/plugin_test_4/plugins/asr/target/debug/plugin_package";
-    let plugin_dir_6 = "/media/medium/Projects/muonium/source/experiments/rust/plugin_test_4/plugins/tts/target/debug/plugin_package";
-    let plugin_dir_7 = "/media/medium/Projects/muonium/source/experiments/rust/plugin_test_4/plugins/llm/target/debug/plugin_package";
+    let plugin_dir_1 = "/media/medium/Projects/muonium/source/experiments/rust/plugin_test_4/carcinisation/carapace/plugins/";
 
     let mut plugin_count = 0;
-    for plugin_dir in [plugin_dir_1, plugin_dir_2, plugin_dir_3, plugin_dir_4, plugin_dir_5, plugin_dir_6, plugin_dir_7] {
+    for plugin_dir in [plugin_dir_1] {
         println!("[+] Loading plugins from \"{}\"...", plugin_dir);
         plugin_count += PluginManager::load_plugins(&plugin_dir).await?;
     }
