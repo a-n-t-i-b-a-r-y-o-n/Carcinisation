@@ -1,5 +1,6 @@
 use std::convert::Infallible;
 use std::error::Error;
+use std::ffi::OsStr;
 use std::future::poll_fn;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -9,15 +10,18 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 use anyhow::{anyhow, Result};
 use bytes::Bytes;
+use hyper_util::rt::TokioIo;
 use parking_lot::RwLock;
 use prost_reflect::DescriptorPool;
 use tempfile::TempDir;
+use tokio::net::UnixStream;
 use tonic::body::Body;
 use tonic::codegen::BoxFuture;
 use tonic::codegen::http::{Request, Response};
 use tonic::service::AxumBody;
 use tonic::{Code, Status};
 use tonic::transport::{Channel, Endpoint, Uri};
+use tower::service_fn;
 use tower_service::Service;
 use crate::server::Named;
 
@@ -47,7 +51,6 @@ struct PluginServiceInner {
     name: String,
     methods: RwLock<Vec<PluginMethod>>,
     channel: RwLock<Option<Channel>>,
-    server: RwLock<Option<Uri>>,
 }
 
 /// RPC Service implemented in a plugin
@@ -136,7 +139,6 @@ impl PluginService {
                             name: service.full_name().to_string(),
                             methods: RwLock::new(methods),
                             channel: RwLock::new(None),
-                            server: RwLock::new(None),
                         })
                     }
                 );
@@ -148,20 +150,28 @@ impl PluginService {
     }
 
     /// Set the plugin server port number
-    pub(crate) fn bind_to_server(&mut self, port_number: u32) -> Result<()> {
-        // TODO: Use HTTPS
-        let uri = Uri::from_str(&format!("http://[::1]:{port_number}"))?;
+    pub(crate) fn bind_to_server<S>(&mut self, socket_file: S) -> Result<()>
+    where
+        S: AsRef<OsStr> + AsRef<Path> + Send + Clone
+    {
+        // Convert to owned PathBuf
+        let socket_path: PathBuf = AsRef::<Path>::as_ref(&socket_file).to_path_buf();
 
-        *self.inner.server.write() = Some(uri.clone());
-
+        // TODO: Use TLS?
+        // TODO: Lower proxy connection timeouts?
         // Build service endpoint object
-        let endpoint = Endpoint::from(uri)
-            .connect_timeout(Duration::from_secs(5))
-            .timeout(Duration::from_secs(30))
-            .tcp_nodelay(true);
+        let endpoint = Endpoint::from_static("http://uds.localhost")
+            .connect_timeout(Duration::from_secs(30))
+            .timeout(Duration::from_secs(30));
 
-        // Lazy-built channel to talk to end point
-        let channel = endpoint.connect_lazy();
+        // Lazily built channel to talk to endpoint
+        let channel = endpoint.connect_with_connector_lazy(service_fn(move |_: Uri| {
+            let socket = socket_path.clone();
+            async move {
+                let stream = UnixStream::connect(socket).await?;
+                Ok::<_, std::io::Error>(TokioIo::new(stream))
+            }
+        }));
 
         // Update local channel handle
         *self.inner.channel.write() = Some(channel);

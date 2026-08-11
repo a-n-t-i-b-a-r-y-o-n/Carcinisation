@@ -1,23 +1,30 @@
 use std::ffi::OsStr;
 use std::fs;
+use std::fs::remove_file;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use convert_case::ccase;
 use lazy_static::lazy_static;
 use parking_lot::RwLock;
-use tempfile::TempDir;
-
-use morphology::package::{PackageV1, PluginPackage};
-use morphology::package::manifest::PackageManifest;
-use phenotype::services::communication_service::CommunicationService;
-use phenotype::services::execution_service::ExecutionService;
-use phenotype::services::port_service::PortService;
+use tempfile::{NamedTempFile, TempDir, TempPath};
+use tokio::io::AsyncWriteExt;
+use tokio::net::UnixListener;
+use tokio::spawn;
+use tokio::task::JoinHandle;
+use tonic::codegen::tokio_stream::wrappers::UnixListenerStream;
+use tonic::service::Routes;
+use tonic::transport::Server;
 use crate::plugin::Plugin;
 use crate::plugin::plugin_service::PluginService;
 use crate::plugin::plugin_status::PluginStatus;
 use crate::server::Named;
+use morphology::package::manifest::PackageManifest;
+use morphology::package::{PackageV1, PluginPackage, TempFile};
+use phenotype::bootstrap_message::BootstrapMessage;
+use phenotype::phenotype_server::PhenotypeServer;
+use phenotype::PhenotypeService;
+use crate::plugin::plugin_process::PluginProcess;
 
 lazy_static! {
     // Static plugin manager singleton
@@ -31,6 +38,7 @@ pub struct PluginManager {
 }
 
 struct PluginManagerInner {
+    ipc_socket: RwLock<TempPath>,
     plugins: RwLock<Vec<Plugin>>,
     working_dir: TempDir,
 }
@@ -39,13 +47,24 @@ impl<'p> PluginManager {
 
     /// Create a new [`PluginManager`] instance
     fn new() -> Self {
+        // TODO: UE-93 - Cache extracted plugins
         // Create scratch directory for live plugins
         let temp_dir = TempDir::with_prefix("plugins-")
             .expect("Failed to create working directory for PluginManager");
 
+        // Create IPC socket path for plugins
+        let ipc_socket = NamedTempFile::new()
+            .expect("Failed to create IPC socket for PluginManager")
+            .into_temp_path();
+
+        // Delete the temp file on disk. Will be recreated on bind and cleaned up when dropped.
+        remove_file(&ipc_socket)
+            .expect("Failed to remove temporary IPC socket");
+
         // Return default, empty plugin manager
         PluginManager {
             inner: Arc::new(PluginManagerInner {
+                ipc_socket: RwLock::new(ipc_socket),
                 plugins: RwLock::new(vec!()),
                 working_dir: temp_dir,
             })
@@ -165,16 +184,24 @@ impl<'p> PluginManager {
             // Get extracted proto directory
             let proto_path = extract_root.join(package.manifest.plugin_proto_dir());
 
-            // Get a new port number
-            let port_number = PortService::request_port_assignment()?;
+            // Create a new socket for the plugin's gRPC server
+            let plugin_socket = NamedTempFile::new()?.into_temp_path();
 
-            // Parse protos to services
-            let services = Self::parse_proto_files(&proto_path)?;
+            // Delete the temp file off disk, retaining auto-cleanup on drop
+            remove_file(&plugin_socket)?;
+
+            // Parse protos to proxy services
+            let mut services = Self::parse_proto_files(&proto_path)?;
+
+            // Configure each proxy service to use the socket
+            for service in services.iter_mut() {
+                service.bind_to_server(plugin_socket.to_path_buf())?;
+            }
 
             println!("[-] Loaded plugin: {} v{}", package.manifest.plugin_name(), package.manifest.plugin_version());
 
             // Build plugin object
-            let plugin = Plugin::new(package, services, port_number, extract_root);
+            let plugin = Plugin::new(package, services, plugin_socket, extract_root);
 
             // Update singleton's plugin list
             (&*SINGLETON).inner
@@ -194,19 +221,52 @@ impl<'p> PluginManager {
         (&*SINGLETON).inner.plugins.read().to_owned()
     }
 
+    /// Start the IPC server on the dedicated socket
+    pub async fn start_ipc() -> Result<JoinHandle<()>> {
+        // Get singleton instance
+        let inner = &*SINGLETON.inner;
+
+        // Get the path to the IPC socket
+        let socket_path = inner.ipc_socket.read();
+        let socket_path = socket_path.to_path_buf();
+
+        // Set up a unix domain listener stream on the socket
+        let listener = UnixListener::bind(socket_path)?;
+        let stream = UnixListenerStream::new(listener);
+
+        // Build a gRPC server on the socket
+        let server = Server::builder()
+            .add_service(PhenotypeServer::new(PhenotypeService::default()))
+            .serve_with_incoming(stream);
+
+        // Wrap the server future
+        let server_future = async move {
+            // TODO: Handle IPC server errors?
+            _ = server.await;
+        };
+
+        // Spawn the server future and get the handle
+        let handle = spawn(server_future);
+
+        // Return the handle
+        Ok(handle)
+    }
+
     /// Initialize the plugin manager
-    pub async fn start_plugins() -> Result<usize> {
+    pub async fn start_plugins() -> Result<Vec<JoinHandle<()>>> {
 
         let inner = &*SINGLETON.inner;
         let mut plugins = inner.plugins.write();
 
-        let mut started_count = 0;
+        // Get the global IPC socket
+        let ipc_socket = inner.ipc_socket.read();
+
+        // Build vec of plugin handles
+        let mut handles = vec!();
+
         for plugin in plugins.iter_mut() {
             // Package information
             let package = plugin.get_package();
-
-            // Plugin port number
-            let port = plugin.inner.port;
 
             // Get plugin extraction directory
             let plugin_dir = plugin.inner.extracted_dir.read();
@@ -217,27 +277,24 @@ impl<'p> PluginManager {
 
             println!("[-] Plugin entrypoint: {}", entrypoint.display());
 
-            // Set server info for proxy plugin service
-            for service in plugin.inner.services.lock().iter_mut() {
-                service.bind_to_server(port)?;
-            }
+            // Launch the plugin binary
+            let mut plugin_process = PluginProcess::spawn_plugin_process(&entrypoint, &working_dir).await?;
 
-            // Start the plugin binary
-            let mut process = ExecutionService::start_plugin_server(&entrypoint, &working_dir)?;
-
-            // Communicate IPC channel info to plugin
-            _ = CommunicationService::initialize_plugin_server(&mut process, port).await;
-
-            // Update the process associated with the plugin
-            *plugin.inner.process.write() = Some(process);
+            // Send the bootstrap message with socket paths
+            let message = BootstrapMessage {
+                server_socket: plugin.get_server_socket().as_path().display().to_string(),
+                ipc_socket: ipc_socket.to_path_buf().display().to_string(),
+            };
+            _ = plugin_process.stdin.write(&message.serialize()?).await?;
+            _ = plugin_process.stdin.flush().await;
 
             // Update plugin status
             *plugin.inner.status.write() = PluginStatus::Active;
 
-            // Update started plugin counter
-            started_count+=1;
+            // Add this handle to the list
+            handles.push(plugin_process.process)
         }
 
-        Ok(started_count)
+        Ok(handles)
     }
 }

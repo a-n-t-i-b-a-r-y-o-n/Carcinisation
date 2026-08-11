@@ -1,0 +1,10 @@
+syntax = "proto3";
+package ipc;
+
+service Phenotype {
+  rpc PingPong(Ping) returns (Pong);
+}
+
+message Ping { }
+
+message Pong { }

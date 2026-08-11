@@ -3,9 +3,19 @@ name = "phenotype"
 version = "0.1.0"
 edition = "2024"
 
+# Build dependencies
+[build-dependencies]
+anyhow = "1.0"
+tonic-prost-build = "0.14.2"
+
 [dependencies]
 # Errors and Results
 anyhow = "1.0"
+
+# gRPC
+prost = "0.14"
+tonic = "0.14.2"
+tonic-prost = "0.14"
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
