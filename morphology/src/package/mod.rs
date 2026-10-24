@@ -1,6 +1,6 @@
 pub mod v1;
 pub mod manifest;
-mod checksums;
+pub mod checksums;
 
 use std::ffi::OsStr;
 pub use anyhow::Result;

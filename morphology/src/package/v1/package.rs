@@ -18,6 +18,7 @@ use crate::package::{
     PackageManifestV1,
     PluginPackage
 };
+use crate::package::checksums::Checksums;
 
 type ArchiveFormat = Archive<XzDecoder<File>>;
 #[allow(dead_code)]

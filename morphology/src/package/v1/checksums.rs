@@ -1,9 +1,14 @@
 use std::collections::HashMap;
 use std::str::from_utf8;
+
+use anyhow::{anyhow, Result};
+use hex;
 use serde::{Deserialize, Serialize};
+use sha3::{Digest, Sha3_256};
+
 use crate::package::checksums::Checksums;
 
-/// Basic checksums file containing a SHA-3 hash of each file.
+/// Basic checksums file containing a SHA-3 256 hash of each file.
 ///
 /// Expected content shape:
 /// ```text
@@ -12,7 +17,7 @@ use crate::package::checksums::Checksums;
 /// ```
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct ChecksumsV1 {
-    checksums: HashMap<String, String>,
+    pub checksums: HashMap<String, String>,
 }
 
 impl From<Vec<u8>> for ChecksumsV1 {
@@ -43,10 +48,37 @@ impl From<Vec<u8>> for ChecksumsV1 {
 }
 
 impl Checksums for ChecksumsV1 {
-    fn get_file_checksum(&self, path: &str) -> Option<String> {
-        match self.checksums.get(path) {
-            Some(s) => Some(String::from(s)),
-            None => None,
+    fn generate_checksum<C>(content: C) -> String
+    where
+        C: AsRef<[u8]>
+    {
+        // Hash the given contents
+        let mut hasher = Sha3_256::new();
+        hasher.update(content);
+        let hash = hasher.finalize().0;
+
+        // Get the actual checksum in lowercase ASCII
+        hex::encode(&hash)
+    }
+
+    fn validate_file_checksum<C>(&self, path: &str, content: C) -> Result<String>
+    where
+        C: AsRef<[u8]>
+    {
+        // Get the checksum in lowercase ASCII
+        let desired_checksum = match self.checksums.get(path) {
+            Some(c) => c.to_ascii_lowercase(),
+            None => return Err(anyhow!("No checksum given for file: {}", path)),
+        };
+
+        // Calculate the actual checksum
+        let actual_checksum = Self::generate_checksum(content);
+
+        // Return the checksum if they match
+        if desired_checksum == actual_checksum {
+            Ok(actual_checksum)
+        } else {
+            Err(anyhow!("Checksums do not match! {} != {}", desired_checksum, actual_checksum))
         }
     }
 }
