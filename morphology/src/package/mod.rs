@@ -61,7 +61,10 @@ pub trait PluginPackage<TPackage, TManifest> {
     fn read<S>(path: &S) -> Option<TPackage>
     where S: AsRef<OsStr> + AsRef<Path> + ?Sized;
 
-    /// Write the plugin package to disk
+    /// Validate the plugin package contents
+    fn validate(&self) -> Result<()>;
+
+    /// Write the plugin package to disk (for test purposes)
     fn test_write<S>(&self, path: &S) -> Result<()>
     where S: AsRef<OsStr> + AsRef<Path> + ?Sized;
 }

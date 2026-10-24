@@ -53,13 +53,14 @@ fn test_writing() {
 
     use std::path::Path;
     use crate::package::{
+        checksums::Checksums,
         ChecksumsV1,
         PluginPackage,
         PackageV1,
         PackageManifestV1,
     };
 
-    let path = Path::new("tests/test_input").to_path_buf();
+    let path = Path::new("tests/test_input/test_archive_content").to_path_buf();
     let manifest_content = r#"{
   "manifest_version": 1,
   "package_version": 1,
@@ -70,12 +71,14 @@ fn test_writing() {
   "entry_point": ""
 }"#;
 
-    let mut hasher = Sha3_256::new();
-    hasher.update(manifest_content.as_bytes());
-    let output = hasher.finalize();
+    let manifest_checksum = ChecksumsV1::generate_checksum(&manifest_content);
+    let dummyproto_checksum = ChecksumsV1::generate_checksum("");
 
-    let manifest_checksum = hex::encode(output.0);
-    let checksums_content = format!("manifest.json - {}", manifest_checksum).into_bytes();
+    let checksums_content = format!(r#"manifest.json - {}
+proto/dummy1.proto - {}
+proto/dummy2.proto - {}"#,
+                                    manifest_checksum, dummyproto_checksum, dummyproto_checksum)
+        .into_bytes();
 
     let checksums = ChecksumsV1::from(checksums_content);
     let manifest: PackageManifestV1 = serde_json::from_str(manifest_content).unwrap();
@@ -118,6 +121,21 @@ fn test_reading() {
             println!("Unable to read package!")
         }
     }
+}
+
+#[test]
+fn test_validation() {
+    use std::path::Path;
+    use crate::package::v1::PackageV1;
+    use crate::package::PluginPackage;
+
+    let path = Path::new("tests/test_input/package_plugin_checksums_test.tar.xz").to_path_buf();
+
+    let package = PackageV1::read(&path).unwrap();
+
+    let validation = package.validate();
+
+    assert!(validation.is_ok());
 }
 
 #[test]
