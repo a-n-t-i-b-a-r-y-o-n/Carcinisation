@@ -89,7 +89,8 @@ proto/dummy2.proto - {}"#,
         file: Path::new("tests/test_input/package_plugin_checksums_test.tar.xz").to_path_buf(),
     };
 
-    match package.test_write(&path) {
+    #[allow(deprecated)]
+    match package.write(&path) {
         Ok(_) => {
             println!("Wrote package!")
         }

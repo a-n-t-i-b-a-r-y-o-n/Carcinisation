@@ -65,6 +65,7 @@ pub trait PluginPackage<TPackage, TManifest> {
     fn validate(&self) -> Result<()>;
 
     /// Write the plugin package to disk (for test purposes)
-    fn test_write<S>(&self, path: &S) -> Result<()>
+    #[deprecated]
+    fn write<S>(&self, path: &S) -> Result<()>
     where S: AsRef<OsStr> + AsRef<Path> + ?Sized;
 }

@@ -286,12 +286,8 @@ impl PluginPackage<PackageV1, PackageManifestV1> for PackageV1 {
                         continue;
                     }
 
-                    if entry.header().entry_type() == EntryType::Directory {
-                        continue;
-                    }
-
                     // Skip checking folders
-                    if path.ends_with("/") {
+                    if path.ends_with("/") || entry.header().entry_type() == EntryType::Directory {
                         continue;
                     }
 
@@ -314,8 +310,7 @@ impl PluginPackage<PackageV1, PackageManifestV1> for PackageV1 {
         Ok(())
     }
 
-    /// Write a given plugin package to the given output directory
-    fn test_write<S>(&self, path: &S) -> Result<()>
+    fn write<S>(&self, path: &S) -> Result<()>
     where
         S: AsRef<OsStr> + AsRef<Path> + ?Sized
     {
