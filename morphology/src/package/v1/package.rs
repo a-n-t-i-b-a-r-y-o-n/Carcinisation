@@ -8,15 +8,17 @@ use anyhow::Result;
 use convert_case::ccase;
 use liblzma::read::XzDecoder;
 use liblzma::write::AutoFinishXzEncoder;
-use tar::{Archive, Builder};
+use tar::{Archive, Builder, EntryType};
 use tempfile::TempDir;
 use tempfile::NamedTempFile as TempFile;
 
 use crate::package::{
     manifest::PackageManifest,
+    ChecksumsV1,
     PackageManifestV1,
     PluginPackage
 };
+use crate::package::checksums::Checksums;
 
 type ArchiveFormat = Archive<XzDecoder<File>>;
 #[allow(dead_code)]
@@ -25,6 +27,7 @@ type ArchiveFormatBuilder = Builder<AutoFinishXzEncoder<File>>;
 /// Version 1 of the plugin package format
 #[derive(Clone)]
 pub struct PackageV1 {
+    pub checksums: ChecksumsV1,
     pub manifest: PackageManifestV1,
     pub file: PathBuf,
 }
@@ -165,47 +168,155 @@ impl PluginPackage<PackageV1, PackageManifestV1> for PackageV1 {
             return None;
         }
 
+        // Metadata files to read from the archive
+        let mut checksums = None;
+        let mut manifest = None;
+
+        // Open the archive to scan for metadata files
         match Self::open_archive(path) {
             Ok(mut archive) => {
-                let mut entries = archive.entries().unwrap();
 
-                match Self::find_entry(&mut entries, Path::new("manifest.json")) {
-                    None => {
-                        println!("No manifest found!");
+                // Create an iterator over the Ok entries
+                let entries = archive.entries().unwrap()
+                    .into_iter().filter(|e| e.is_ok())
+                    .map(|e| e.unwrap());
 
-                        None
-                    }
-                    Some(mut entry) => {
-                        // Read the manifest
+                // Stream entries from the tar file
+                for mut entry in entries {
+
+                    // Get the entry path or continue
+                    let path = match entry.path() {
+                        Ok(p) => {
+                            match p.to_str() {
+                                Some(s) => String::from(s),
+                                None => continue,
+                            }
+                        }
+                        Err(_) => continue,
+                    };
+
+                    // Check if we found the manifest
+                    if path.eq_ignore_ascii_case("manifest.json") {
+
+                        // Read the manifest from bytes
                         let mut bytes = vec!();
                         entry.read_to_end(&mut bytes).unwrap();
 
-                        let manifest = PackageManifestV1::from(bytes);
-
-                        Some(
-                            PackageV1 {
-                                manifest,
-                                file: path.to_path_buf(),
-                            }
-                        )
+                        manifest = Some(PackageManifestV1::from(bytes));
                     }
+
+                    // Check if we found the checksums
+                    if path.eq_ignore_ascii_case("checksums.txt") {
+
+                        // Read the checksums from bytes
+                        let mut bytes = vec!();
+                        entry.read_to_end(&mut bytes).unwrap();
+
+                        checksums = Some(ChecksumsV1::from(bytes));
+                    }
+
                 }
+
             }
             Err(e) => {
                 println!("Failed to open file: {:?}", e);
 
-                None
+                return None;
             }
         }
+
+        // Check that we found the metadata
+        if checksums.is_none() || manifest.is_none() {
+
+            if checksums.is_none() {
+                println!("No checksums found!");
+            }
+            if manifest.is_none() {
+                println!("No manifest found!");
+            }
+
+            return None;
+        }
+
+        let checksums = checksums.unwrap();
+        let manifest = manifest.unwrap();
+        let file = path.to_path_buf();
+
+        Some(
+            PackageV1 {
+                checksums,
+                manifest,
+                file,
+            }
+        )
     }
 
-    /// Write a given plugin package to the given output directory
+    fn validate(&self) -> Result<()> {
+        if !self.file.exists() {
+            return Err(anyhow!("Cannot validate nonexistent package!"));
+        }
+
+        match Self::open_archive(&self.file) {
+            Ok(mut archive) => {
+                // Create an iterator over the Ok entries
+                let entries = archive.entries().unwrap().into_iter();
+
+                // Iterate everything in the archive
+                for entry in entries {
+
+                    // Try to get the entry
+                    let mut entry = match entry {
+                        Ok(entry) => entry,
+                        Err(err) => return Err(anyhow!("Found invalid entry in archive: {}", err.to_string())),
+                    };
+
+                    // Try to get the path
+                    let path = match entry.path() {
+                        Ok(path) => {
+                            match path.to_str() {
+                                Some(path) => String::from(path),
+                                None => return Err(anyhow!("Found entry in archive with no path")),
+                            }
+                        }
+                        Err(err) => return Err(anyhow!("Unable to get archive entry path: {}", err.to_string())),
+                    };
+
+                    // Skip checking the checksum file itself
+                    if path.eq_ignore_ascii_case("checksums.txt") {
+                        continue;
+                    }
+
+                    // Skip checking folders
+                    if path.ends_with("/") || entry.header().entry_type() == EntryType::Directory {
+                        continue;
+                    }
+
+                    // Read the entry content
+                    let mut entry_content = vec!();
+                    entry.read_to_end(&mut entry_content)?;
+
+                    // Check the content hash
+                    let _checksum = match self.checksums.validate_file_checksum(&path, &entry_content) {
+                        Ok(c) => c,
+                        Err(e) => return Err(e),
+                    };
+                }
+            }
+            Err(e) => {
+                return Err(e)
+            }
+        }
+
+        Ok(())
+    }
+
     fn write<S>(&self, path: &S) -> Result<()>
     where
         S: AsRef<OsStr> + AsRef<Path> + ?Sized
     {
         let path = Path::new(path);
-        let output_directory = path.canonicalize()?;
+        let input_directory = path.canonicalize()?;
+        let output_directory = input_directory.parent().unwrap();
 
         let package_name = ccase!(snake, &self.manifest.plugin_name());
         let package_filename = format!("package_{}.tar.xz", package_name);
@@ -218,10 +329,27 @@ impl PluginPackage<PackageV1, PackageManifestV1> for PackageV1 {
         let manifest_path = &output_directory.join("manifest.json");
         let mut manifest_file = File::create(manifest_path)?;
         manifest_file.write_all(&manifest_content)?;
+        _ = manifest_file.flush()?;
 
-        output_file.append_dir_all("", &output_directory)?;
+        let mut checksums_content = String::new();
+        for (file, checksum) in &self.checksums.checksums {
+            checksums_content = format!("{}{} - {}\n", checksums_content, file, checksum)
+        }
+
+        let checksums_path = &output_directory.join("checksums.txt");
+        let mut checksums_file = File::create(checksums_path)?;
+        checksums_file.write_all(checksums_content.as_bytes())?;
+        _ = checksums_file.flush()?;
+
+        output_file.append_file("manifest.json", &mut File::open(&manifest_path)?)?;
+        output_file.append_file("checksums.txt", &mut File::open(&checksums_path)?)?;
+
+        output_file.append_dir_all("", &input_directory)?;
+
+        _ = output_file.finish();
 
         fs::remove_file(manifest_path)?;
+        fs::remove_file(checksums_path)?;
 
         Ok(())
 

@@ -6,19 +6,17 @@ fn package_dump() {
     use std::path::Path;
     use crate::package::PackageV1;
 
-    let path = Path::new("tests/test_input/package_test_package_1.tar.xz").to_path_buf();
+    let path = Path::new("tests/test_input/package_plugin_checksums_test.tar.xz").to_path_buf();
     let archive = PackageV1::open_archive(&path);
 
     assert!(archive.is_ok());
 
     let mut archive = archive.unwrap();
-
     let entries = archive.entries();
 
     assert!(entries.is_ok());
 
     let entries = entries.unwrap();
-
     for entry in entries {
         let e = &entry.unwrap();
         let p = e.path().unwrap();
@@ -29,33 +27,69 @@ fn package_dump() {
 }
 
 #[test]
+fn test_manifest_writing_identity() {
+
+    use crate::package::PackageManifestV1;
+
+    let input_manifest_content = r#"{
+  "manifest_version": 1,
+  "package_version": 1,
+  "plugin_name": "plugin checksums test",
+  "plugin_version": "3.2.1",
+  "proto_dir": "/proto",
+  "execution_dir": "",
+  "entry_point": ""
+}"#;
+
+    let manifest: PackageManifestV1 = serde_json::from_str(input_manifest_content).unwrap();
+    let output_manifest_content = serde_json::to_vec_pretty(&manifest).unwrap();
+
+    // Confirm manifest was written exactly as intended
+    assert_eq!(input_manifest_content.as_bytes(), output_manifest_content.as_slice())
+}
+
+#[test]
 fn test_writing() {
 
     use std::path::Path;
     use crate::package::{
+        checksums::Checksums,
+        ChecksumsV1,
         PluginPackage,
         PackageV1,
         PackageManifestV1,
     };
 
-    let path = Path::new("tests/test_input").to_path_buf();
+    let path = Path::new("tests/test_input/test_archive_content").to_path_buf();
     let manifest_content = r#"{
-    "manifest_version": 1,
-    "package_version": 1,
-    "plugin_name": "plugin-contract test",
-    "plugin_version": "3.2.1",
-    "proto_dir": "/proto",
-    "execution_dir": "",
-    "entry_point": ""
+  "manifest_version": 1,
+  "package_version": 1,
+  "plugin_name": "plugin checksums test",
+  "plugin_version": "3.2.1",
+  "proto_dir": "/proto",
+  "execution_dir": "",
+  "entry_point": ""
 }"#;
 
+    let manifest_checksum = ChecksumsV1::generate_checksum(&manifest_content);
+    let dummyproto_checksum = ChecksumsV1::generate_checksum("");
+
+    let checksums_content = format!(r#"manifest.json - {}
+proto/dummy1.proto - {}
+proto/dummy2.proto - {}"#,
+                                    manifest_checksum, dummyproto_checksum, dummyproto_checksum)
+        .into_bytes();
+
+    let checksums = ChecksumsV1::from(checksums_content);
     let manifest: PackageManifestV1 = serde_json::from_str(manifest_content).unwrap();
 
     let package = PackageV1 {
+        checksums,
         manifest,
-        file: Path::new("tests/test_input/package_plugin_contract_test.tar.xz").to_path_buf(),
+        file: Path::new("tests/test_input/package_plugin_checksums_test.tar.xz").to_path_buf(),
     };
 
+    #[allow(deprecated)]
     match package.write(&path) {
         Ok(_) => {
             println!("Wrote package!")
@@ -75,7 +109,7 @@ fn test_reading() {
     use crate::package::PluginPackage;
     use crate::package::manifest::PackageManifest;
 
-    let path = Path::new("tests/test_input/package_plugin_contract_test.tar.xz").to_path_buf();
+    let path = Path::new("tests/test_input/package_plugin_checksums_test.tar.xz").to_path_buf();
 
     match PackageV1::read(&path) {
         Some(package) => {
@@ -91,6 +125,21 @@ fn test_reading() {
 }
 
 #[test]
+fn test_validation() {
+    use std::path::Path;
+    use crate::package::v1::PackageV1;
+    use crate::package::PluginPackage;
+
+    let path = Path::new("tests/test_input/package_plugin_checksums_test.tar.xz").to_path_buf();
+
+    let package = PackageV1::read(&path).unwrap();
+
+    let validation = package.validate();
+
+    assert!(validation.is_ok());
+}
+
+#[test]
 fn test_file_extraction() {
 
     use std::path::Path;
@@ -99,15 +148,15 @@ fn test_file_extraction() {
     use crate::package::PackageManifestV1;
     use crate::package::PluginPackage;
 
-    let path = Path::new("tests/test_input/package_plugin_contract_test.tar.xz").to_path_buf();
+    let path = Path::new("tests/test_input/package_plugin_checksums_test.tar.xz").to_path_buf();
     let manifest_content = r#"{
-    "manifest_version": 1,
-    "package_version": 1,
-    "plugin_name": "plugin-contract test",
-    "plugin_version": "3.2.1",
-    "proto_dir": "/proto",
-    "execution_dir": "",
-    "entry_point": ""
+  "manifest_version": 1,
+  "package_version": 1,
+  "plugin_name": "plugin checksums test",
+  "plugin_version": "3.2.1",
+  "proto_dir": "/proto",
+  "execution_dir": "",
+  "entry_point": ""
 }"#;
 
     let package = PackageV1::read(&path);
@@ -144,7 +193,7 @@ fn test_dir_extraction() {
     use crate::package::v1::PackageV1;
     use crate::package::PluginPackage;
 
-    let path = Path::new("tests/test_input/package_test_package_1.tar.xz").to_path_buf();
+    let path = Path::new("tests/test_input/package_plugin_checksums_test.tar.xz").to_path_buf();
     let package = PackageV1::read(&path);
 
     assert!(package.is_some());

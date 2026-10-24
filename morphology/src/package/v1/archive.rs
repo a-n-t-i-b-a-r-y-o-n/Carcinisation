@@ -34,7 +34,7 @@ impl PackageV1 {
         let archive = Archive::new(decompressor);
         Ok(archive)
     }
-
+    
     /// Find an entry in the package archive
     pub(crate) fn find_entry<'e, S>(entries: &mut Entries<'e, XzDecoder<File>>, entry_path: &S)
         -> Option<Entry<'e, XzDecoder<File>>>

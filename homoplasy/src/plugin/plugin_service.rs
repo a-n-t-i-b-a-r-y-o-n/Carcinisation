@@ -4,7 +4,6 @@ use std::ffi::OsStr;
 use std::future::poll_fn;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::str::FromStr;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
@@ -27,18 +26,22 @@ use crate::server::Named;
 
 #[derive(Clone)]
 pub struct PluginRequest {
+    #[allow(dead_code)]
     name: String,
 }
 
 #[derive(Clone)]
 pub struct PluginResponse {
+    #[allow(dead_code)]
     name: String,
 }
 
 #[derive(Clone)]
 pub struct PluginMethod {
     name: String,
+    #[allow(dead_code)]
     request: PluginRequest,
+    #[allow(dead_code)]
     response: PluginResponse,
 }
 

@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 use parking_lot::{Mutex, RwLock};
-use tempfile::{NamedTempFile, TempPath};
+use tempfile::TempPath;
 use crate::plugin::plugin_service::PluginService;
 use crate::plugin::plugin_status::PluginStatus;
 
