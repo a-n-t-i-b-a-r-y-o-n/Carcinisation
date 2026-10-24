@@ -61,13 +61,13 @@ fn test_writing() {
 
     let path = Path::new("tests/test_input").to_path_buf();
     let manifest_content = r#"{
-    "manifest_version": 1,
-    "package_version": 1,
-    "plugin_name": "plugin checksums test",
-    "plugin_version": "3.2.1",
-    "proto_dir": "/proto",
-    "execution_dir": "",
-    "entry_point": ""
+  "manifest_version": 1,
+  "package_version": 1,
+  "plugin_name": "plugin checksums test",
+  "plugin_version": "3.2.1",
+  "proto_dir": "/proto",
+  "execution_dir": "",
+  "entry_point": ""
 }"#;
 
     let mut hasher = Sha3_256::new();
@@ -131,13 +131,13 @@ fn test_file_extraction() {
 
     let path = Path::new("tests/test_input/package_plugin_checksums_test.tar.xz").to_path_buf();
     let manifest_content = r#"{
-    "manifest_version": 1,
-    "package_version": 1,
-    "plugin_name": "plugin checksums test",
-    "plugin_version": "3.2.1",
-    "proto_dir": "/proto",
-    "execution_dir": "",
-    "entry_point": ""
+  "manifest_version": 1,
+  "package_version": 1,
+  "plugin_name": "plugin checksums test",
+  "plugin_version": "3.2.1",
+  "proto_dir": "/proto",
+  "execution_dir": "",
+  "entry_point": ""
 }"#;
 
     let package = PackageV1::read(&path);
