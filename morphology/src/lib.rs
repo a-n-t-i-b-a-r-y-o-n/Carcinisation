@@ -29,6 +29,28 @@ fn package_dump() {
 }
 
 #[test]
+fn test_manifest_writing_identity() {
+
+    use crate::package::PackageManifestV1;
+
+    let input_manifest_content = r#"{
+  "manifest_version": 1,
+  "package_version": 1,
+  "plugin_name": "plugin checksums test",
+  "plugin_version": "3.2.1",
+  "proto_dir": "/proto",
+  "execution_dir": "",
+  "entry_point": ""
+}"#;
+
+    let manifest: PackageManifestV1 = serde_json::from_str(input_manifest_content).unwrap();
+    let output_manifest_content = serde_json::to_vec_pretty(&manifest).unwrap();
+
+    // Confirm manifest was written exactly as intended
+    assert_eq!(input_manifest_content.as_bytes(), output_manifest_content.as_slice())
+}
+
+#[test]
 fn test_writing() {
 
     use std::path::Path;

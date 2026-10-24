@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 /// V1 plugin package manifest
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct PackageManifestV1 {
+    manifest_version: ManifestVersion,
     package_version: PackageVersion,
     plugin_name: String,
     plugin_version: String,
