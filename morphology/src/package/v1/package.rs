@@ -6,11 +6,9 @@ use std::path::{Path, PathBuf};
 use anyhow::anyhow;
 use anyhow::Result;
 use convert_case::ccase;
-use hex;
 use liblzma::read::XzDecoder;
 use liblzma::write::AutoFinishXzEncoder;
-use sha3::{Digest, Sha3_256};
-use tar::{Archive, Builder};
+use tar::{Archive, Builder, EntryType};
 use tempfile::TempDir;
 use tempfile::NamedTempFile as TempFile;
 

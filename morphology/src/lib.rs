@@ -12,13 +12,11 @@ fn package_dump() {
     assert!(archive.is_ok());
 
     let mut archive = archive.unwrap();
-
     let entries = archive.entries();
 
     assert!(entries.is_ok());
 
     let entries = entries.unwrap();
-
     for entry in entries {
         let e = &entry.unwrap();
         let p = e.path().unwrap();
@@ -54,7 +52,6 @@ fn test_manifest_writing_identity() {
 fn test_writing() {
 
     use std::path::Path;
-    use sha3::{Digest, Sha3_256};
     use crate::package::{
         ChecksumsV1,
         PluginPackage,
