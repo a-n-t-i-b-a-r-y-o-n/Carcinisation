@@ -71,6 +71,7 @@ Each package is assumed to hold only a single plugin.
 Plugins are packaged as XZ-compressed tarballs with the following nominal structure:
 ```text
 some_plugin.tar.xz/
+                    checksums.txt
                     manifest.json
                     proto/
                             some_proto_files.proto

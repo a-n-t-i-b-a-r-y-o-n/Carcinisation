@@ -35,6 +35,27 @@ impl PackageV1 {
         Ok(archive)
     }
 
+    pub(crate) fn get_entries(entries: Entries<XzDecoder<File>>) -> Vec<String> {
+        entries.into_iter()
+            .filter_map(|e| {
+                match e {
+                    Ok(entry) => {
+                        match entry.path() {
+                            Ok(path) => {
+                                match path.to_str() {
+                                    Some(s) => Some(String::from(s)),
+                                    None => None,
+                                }
+                            }
+                            Err(_) => None,
+                        }
+                    }
+                    Err(_) => None,
+                }
+            })
+            .collect::<Vec<String>>()
+    }
+
     /// Find an entry in the package archive
     pub(crate) fn find_entry<'e, S>(entries: &mut Entries<'e, XzDecoder<File>>, entry_path: &S)
         -> Option<Entry<'e, XzDecoder<File>>>

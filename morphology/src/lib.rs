@@ -6,7 +6,7 @@ fn package_dump() {
     use std::path::Path;
     use crate::package::PackageV1;
 
-    let path = Path::new("tests/test_input/package_test_package_1.tar.xz").to_path_buf();
+    let path = Path::new("tests/test_input/package_plugin_checksums_test.tar.xz").to_path_buf();
     let archive = PackageV1::open_archive(&path);
 
     assert!(archive.is_ok());
@@ -32,7 +32,9 @@ fn package_dump() {
 fn test_writing() {
 
     use std::path::Path;
+    use sha3::{Digest, Sha3_256};
     use crate::package::{
+        ChecksumsV1,
         PluginPackage,
         PackageV1,
         PackageManifestV1,
@@ -42,21 +44,30 @@ fn test_writing() {
     let manifest_content = r#"{
     "manifest_version": 1,
     "package_version": 1,
-    "plugin_name": "plugin-contract test",
+    "plugin_name": "plugin checksums test",
     "plugin_version": "3.2.1",
     "proto_dir": "/proto",
     "execution_dir": "",
     "entry_point": ""
 }"#;
 
+    let mut hasher = Sha3_256::new();
+    hasher.update(manifest_content.as_bytes());
+    let output = hasher.finalize();
+
+    let manifest_checksum = hex::encode(output.0);
+    let checksums_content = format!("manifest.json - {}", manifest_checksum).into_bytes();
+
+    let checksums = ChecksumsV1::from(checksums_content);
     let manifest: PackageManifestV1 = serde_json::from_str(manifest_content).unwrap();
 
     let package = PackageV1 {
+        checksums,
         manifest,
-        file: Path::new("tests/test_input/package_plugin_contract_test.tar.xz").to_path_buf(),
+        file: Path::new("tests/test_input/package_plugin_checksums_test.tar.xz").to_path_buf(),
     };
 
-    match package.write(&path) {
+    match package.test_write(&path) {
         Ok(_) => {
             println!("Wrote package!")
         }
@@ -75,7 +86,7 @@ fn test_reading() {
     use crate::package::PluginPackage;
     use crate::package::manifest::PackageManifest;
 
-    let path = Path::new("tests/test_input/package_plugin_contract_test.tar.xz").to_path_buf();
+    let path = Path::new("tests/test_input/package_plugin_checksums_test.tar.xz").to_path_buf();
 
     match PackageV1::read(&path) {
         Some(package) => {
@@ -99,11 +110,11 @@ fn test_file_extraction() {
     use crate::package::PackageManifestV1;
     use crate::package::PluginPackage;
 
-    let path = Path::new("tests/test_input/package_plugin_contract_test.tar.xz").to_path_buf();
+    let path = Path::new("tests/test_input/package_plugin_checksums_test.tar.xz").to_path_buf();
     let manifest_content = r#"{
     "manifest_version": 1,
     "package_version": 1,
-    "plugin_name": "plugin-contract test",
+    "plugin_name": "plugin checksums test",
     "plugin_version": "3.2.1",
     "proto_dir": "/proto",
     "execution_dir": "",
@@ -144,7 +155,7 @@ fn test_dir_extraction() {
     use crate::package::v1::PackageV1;
     use crate::package::PluginPackage;
 
-    let path = Path::new("tests/test_input/package_test_package_1.tar.xz").to_path_buf();
+    let path = Path::new("tests/test_input/package_plugin_checksums_test.tar.xz").to_path_buf();
     let package = PackageV1::read(&path);
 
     assert!(package.is_some());

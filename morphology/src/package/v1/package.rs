@@ -6,14 +6,17 @@ use std::path::{Path, PathBuf};
 use anyhow::anyhow;
 use anyhow::Result;
 use convert_case::ccase;
+use hex;
 use liblzma::read::XzDecoder;
 use liblzma::write::AutoFinishXzEncoder;
+use sha3::{Digest, Sha3_256};
 use tar::{Archive, Builder};
 use tempfile::TempDir;
 use tempfile::NamedTempFile as TempFile;
 
 use crate::package::{
     manifest::PackageManifest,
+    ChecksumsV1,
     PackageManifestV1,
     PluginPackage
 };
@@ -25,6 +28,7 @@ type ArchiveFormatBuilder = Builder<AutoFinishXzEncoder<File>>;
 /// Version 1 of the plugin package format
 #[derive(Clone)]
 pub struct PackageV1 {
+    pub checksums: ChecksumsV1,
     pub manifest: PackageManifestV1,
     pub file: PathBuf,
 }
@@ -165,42 +169,91 @@ impl PluginPackage<PackageV1, PackageManifestV1> for PackageV1 {
             return None;
         }
 
+        // Metadata files to read from the archive
+        let mut checksums = None;
+        let mut manifest = None;
+
+        // Open the archive to scan for metadata files
         match Self::open_archive(path) {
             Ok(mut archive) => {
-                let mut entries = archive.entries().unwrap();
 
-                match Self::find_entry(&mut entries, Path::new("manifest.json")) {
-                    None => {
-                        println!("No manifest found!");
+                // Create an iterator over the Ok entries
+                let entries = archive.entries().unwrap()
+                    .into_iter().filter(|e| e.is_ok())
+                    .map(|e| e.unwrap());
 
-                        None
-                    }
-                    Some(mut entry) => {
-                        // Read the manifest
+                // Stream entries from the tar file
+                for mut entry in entries {
+
+                    // Get the entry path or continue
+                    let path = match entry.path() {
+                        Ok(p) => {
+                            match p.to_str() {
+                                Some(s) => String::from(s),
+                                None => continue,
+                            }
+                        }
+                        Err(_) => continue,
+                    };
+
+                    // Check if we found the manifest
+                    if path.eq_ignore_ascii_case("manifest.json") {
+
+                        // Read the manifest from bytes
                         let mut bytes = vec!();
                         entry.read_to_end(&mut bytes).unwrap();
 
-                        let manifest = PackageManifestV1::from(bytes);
-
-                        Some(
-                            PackageV1 {
-                                manifest,
-                                file: path.to_path_buf(),
-                            }
-                        )
+                        manifest = Some(PackageManifestV1::from(bytes));
                     }
+
+                    // Check if we found the checksums
+                    if path.eq_ignore_ascii_case("checksums.txt") {
+
+                        // Read the checksums from bytes
+                        let mut bytes = vec!();
+                        entry.read_to_end(&mut bytes).unwrap();
+
+                        checksums = Some(ChecksumsV1::from(bytes));
+                    }
+
                 }
+
             }
             Err(e) => {
                 println!("Failed to open file: {:?}", e);
 
-                None
+                return None;
             }
         }
+
+        // Check that we found the metadata
+        if checksums.is_none() || manifest.is_none() {
+
+            if checksums.is_none() {
+                println!("No checksums found!");
+            }
+            if manifest.is_none() {
+                println!("No manifest found!");
+            }
+
+            return None;
+        }
+
+        let checksums = checksums.unwrap();
+        let manifest = manifest.unwrap();
+        let file = path.to_path_buf();
+
+        Some(
+            PackageV1 {
+                checksums,
+                manifest,
+                file,
+            }
+        )
     }
 
     /// Write a given plugin package to the given output directory
-    fn write<S>(&self, path: &S) -> Result<()>
+    fn test_write<S>(&self, path: &S) -> Result<()>
     where
         S: AsRef<OsStr> + AsRef<Path> + ?Sized
     {
@@ -219,9 +272,20 @@ impl PluginPackage<PackageV1, PackageManifestV1> for PackageV1 {
         let mut manifest_file = File::create(manifest_path)?;
         manifest_file.write_all(&manifest_content)?;
 
+        let mut hasher = Sha3_256::new();
+        hasher.update(manifest_content);
+
+        let manifest_checksum = hex::encode(hasher.finalize().0);
+        let checksums_content = format!("manifest.json - {}", manifest_checksum);
+
+        let checksums_path = &output_directory.join("checksums.txt");
+        let mut checksums_file = File::create(checksums_path)?;
+        checksums_file.write_all(checksums_content.as_bytes())?;
+
         output_file.append_dir_all("", &output_directory)?;
 
         fs::remove_file(manifest_path)?;
+        fs::remove_file(checksums_path)?;
 
         Ok(())
 

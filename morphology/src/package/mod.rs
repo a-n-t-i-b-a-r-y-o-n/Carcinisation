@@ -1,5 +1,6 @@
 pub mod v1;
 pub mod manifest;
+mod checksums;
 
 use std::ffi::OsStr;
 pub use anyhow::Result;
@@ -11,6 +12,7 @@ pub use tempfile::NamedTempFile as TempFile;
 pub use crate::package::{
     v1::PackageV1,
     v1::manifest::PackageManifestV1,
+    v1::checksums::ChecksumsV1,
 };
 
 
@@ -60,6 +62,6 @@ pub trait PluginPackage<TPackage, TManifest> {
     where S: AsRef<OsStr> + AsRef<Path> + ?Sized;
 
     /// Write the plugin package to disk
-    fn write<S>(&self, path: &S) -> Result<()>
+    fn test_write<S>(&self, path: &S) -> Result<()>
     where S: AsRef<OsStr> + AsRef<Path> + ?Sized;
 }
