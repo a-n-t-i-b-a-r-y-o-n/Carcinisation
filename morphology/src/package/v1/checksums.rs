@@ -8,7 +8,7 @@ use sha3::{Digest, Sha3_256};
 
 use crate::package::checksums::Checksums;
 
-/// Basic checksums file containing a SHA-3 256 hash of each file.
+/// Basic checksums file containing a SHA3-256 hash of each file.
 ///
 /// Expected content shape:
 /// ```text
@@ -17,6 +17,7 @@ use crate::package::checksums::Checksums;
 /// ```
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct ChecksumsV1 {
+    pub raw_bytes: Vec<u8>,
     pub checksums: HashMap<String, String>,
 }
 
@@ -24,7 +25,10 @@ impl From<Vec<u8>> for ChecksumsV1 {
     fn from(value: Vec<u8>) -> Self {
         let full_content = from_utf8(&value).unwrap_or("");
         if full_content.is_empty() {
-            return Self { checksums: HashMap::new() }
+            return Self {
+                raw_bytes: value,
+                checksums: HashMap::new()
+            }
         };
 
         let mut hashes = HashMap::new();
@@ -42,6 +46,7 @@ impl From<Vec<u8>> for ChecksumsV1 {
         }
 
         Self {
+            raw_bytes: value,
             checksums: hashes,
         }
     }
