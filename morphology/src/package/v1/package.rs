@@ -225,7 +225,7 @@ impl PluginPackage<PackageV1, PackageManifestV1> for PackageV1 {
 
                     // Check if we found the signature
                     if path.eq_ignore_ascii_case("signature.bin") {
-                        // Read the checksums from bytes
+                        // Read the signature from bytes
                         let mut bytes = vec!();
                         entry.read_to_end(&mut bytes).unwrap();
 
