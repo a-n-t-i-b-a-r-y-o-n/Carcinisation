@@ -21,7 +21,7 @@ tempfile = "3"
 
 # Package v1
 ed25519 = "3"
-ed25519-dalek = "3"
+ed25519-dalek = { version = "3", features = ["pem"] }
 hex = "0.4"
 liblzma = { version = "0.4", features = ["parallel", "static"] }
 sha3 = "0.12"

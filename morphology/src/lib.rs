@@ -52,6 +52,9 @@ fn test_manifest_writing_identity() {
 fn test_writing() {
 
     use std::path::Path;
+    use ed25519::pkcs8::DecodePrivateKey;
+    use ed25519_dalek::SigningKey;
+    use crate::package::v1::signature::PluginSigner;
     use crate::package::{
         checksums::Checksums,
         ChecksumsV1,
@@ -83,7 +86,14 @@ proto/dummy2.proto - {}"#,
     let checksums = ChecksumsV1::from(checksums_content);
     let manifest: PackageManifestV1 = serde_json::from_str(manifest_content).unwrap();
 
+    let private_key_pem = str::from_utf8(include_bytes!("../../signing/plugin_signatures.key")).unwrap();
+    let signing_key = SigningKey::from_pkcs8_pem(private_key_pem).unwrap();
+    let signer = PluginSigner { signing_key };
+
+    let signature = signer.sign(&checksums.raw_bytes);
+
     let package = PackageV1 {
+        signature,
         checksums,
         manifest,
         file: Path::new("tests/test_input/package_plugin_checksums_test.tar.xz").to_path_buf(),

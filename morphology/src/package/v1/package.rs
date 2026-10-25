@@ -6,7 +6,9 @@ use std::path::{Path, PathBuf};
 use anyhow::anyhow;
 use anyhow::Result;
 use convert_case::ccase;
+use ed25519::pkcs8::DecodePublicKey;
 use ed25519::Signature;
+use ed25519_dalek::VerifyingKey;
 use liblzma::read::XzDecoder;
 use liblzma::write::AutoFinishXzEncoder;
 use tar::{Archive, Builder, EntryType};
@@ -20,6 +22,7 @@ use crate::package::{
     PluginPackage
 };
 use crate::package::checksums::Checksums;
+use crate::package::v1::signature::{PluginSignatureVerifier, VERIFYING_KEY};
 
 type ArchiveFormat = Archive<XzDecoder<File>>;
 #[allow(dead_code)]
@@ -276,6 +279,13 @@ impl PluginPackage<PackageV1, PackageManifestV1> for PackageV1 {
             return Err(anyhow!("Cannot validate nonexistent package!"));
         }
 
+        // Read the signature public key PEM
+        let verifying_key: VerifyingKey = VerifyingKey::from_public_key_pem(VERIFYING_KEY)?;
+
+        // Check the signature
+        let verifier = PluginSignatureVerifier { verifying_key };
+        verifier.verify(&self.checksums.raw_bytes, &self.signature)?;
+
         // Open the file to check each file hash
         match Self::open_archive(&self.file) {
             Ok(mut archive) => {
@@ -347,23 +357,27 @@ impl PluginPackage<PackageV1, PackageManifestV1> for PackageV1 {
 
         let manifest_content = serde_json::to_vec_pretty(&self.manifest())?;
 
+        // Write manifest
         let manifest_path = &output_directory.join("manifest.json");
         let mut manifest_file = File::create(manifest_path)?;
         manifest_file.write_all(&manifest_content)?;
         _ = manifest_file.flush()?;
 
-        let mut checksums_content = String::new();
-        for (file, checksum) in &self.checksums.checksums {
-            checksums_content = format!("{}{} - {}\n", checksums_content, file, checksum)
-        }
-
+        // Write checksums
         let checksums_path = &output_directory.join("checksums.txt");
         let mut checksums_file = File::create(checksums_path)?;
-        checksums_file.write_all(checksums_content.as_bytes())?;
+        checksums_file.write_all(&self.checksums.raw_bytes)?;
         _ = checksums_file.flush()?;
+
+        // Write signature
+        let signature_path = &output_directory.join("signature.bin");
+        let mut signature_file = File::create(signature_path)?;
+        signature_file.write_all(&self.signature.to_vec())?;
+        _ = signature_file.flush();
 
         output_file.append_file("manifest.json", &mut File::open(&manifest_path)?)?;
         output_file.append_file("checksums.txt", &mut File::open(&checksums_path)?)?;
+        output_file.append_file("signature.bin", &mut File::open(&signature_path)?)?;
 
         output_file.append_dir_all("", &input_directory)?;
 
@@ -371,6 +385,7 @@ impl PluginPackage<PackageV1, PackageManifestV1> for PackageV1 {
 
         fs::remove_file(manifest_path)?;
         fs::remove_file(checksums_path)?;
+        fs::remove_file(signature_path)?;
 
         Ok(())
 
