@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use anyhow::anyhow;
 use anyhow::Result;
 use convert_case::ccase;
+use ed25519::Signature;
 use liblzma::read::XzDecoder;
 use liblzma::write::AutoFinishXzEncoder;
 use tar::{Archive, Builder, EntryType};
@@ -27,6 +28,7 @@ type ArchiveFormatBuilder = Builder<AutoFinishXzEncoder<File>>;
 /// Version 1 of the plugin package format
 #[derive(Clone)]
 pub struct PackageV1 {
+    pub signature: Signature,
     pub checksums: ChecksumsV1,
     pub manifest: PackageManifestV1,
     pub file: PathBuf,
@@ -169,6 +171,7 @@ impl PluginPackage<PackageV1, PackageManifestV1> for PackageV1 {
         }
 
         // Metadata files to read from the archive
+        let mut signature = None;
         let mut checksums = None;
         let mut manifest = None;
 
@@ -202,6 +205,7 @@ impl PluginPackage<PackageV1, PackageManifestV1> for PackageV1 {
                         let mut bytes = vec!();
                         entry.read_to_end(&mut bytes).unwrap();
 
+                        // Parse the package manifest
                         manifest = Some(PackageManifestV1::from(bytes));
                     }
 
@@ -212,7 +216,18 @@ impl PluginPackage<PackageV1, PackageManifestV1> for PackageV1 {
                         let mut bytes = vec!();
                         entry.read_to_end(&mut bytes).unwrap();
 
+                        // Parse the checksums file
                         checksums = Some(ChecksumsV1::from(bytes));
+                    }
+
+                    // Check if we found the signature
+                    if path.eq_ignore_ascii_case("signature.bin") {
+                        // Read the checksums from bytes
+                        let mut bytes = vec!();
+                        entry.read_to_end(&mut bytes).unwrap();
+
+                        // Parse the digital signature
+                        signature = Some(Signature::from_slice(&bytes).unwrap())
                     }
 
                 }
@@ -226,7 +241,7 @@ impl PluginPackage<PackageV1, PackageManifestV1> for PackageV1 {
         }
 
         // Check that we found the metadata
-        if checksums.is_none() || manifest.is_none() {
+        if checksums.is_none() || manifest.is_none() || signature.is_none() {
 
             if checksums.is_none() {
                 println!("No checksums found!");
@@ -234,16 +249,21 @@ impl PluginPackage<PackageV1, PackageManifestV1> for PackageV1 {
             if manifest.is_none() {
                 println!("No manifest found!");
             }
+            if signature.is_none() {
+                println!("No signature found!");
+            }
 
             return None;
         }
 
+        let signature = signature.unwrap();
         let checksums = checksums.unwrap();
         let manifest = manifest.unwrap();
         let file = path.to_path_buf();
 
         Some(
             PackageV1 {
+                signature,
                 checksums,
                 manifest,
                 file,
@@ -256,10 +276,11 @@ impl PluginPackage<PackageV1, PackageManifestV1> for PackageV1 {
             return Err(anyhow!("Cannot validate nonexistent package!"));
         }
 
+        // Open the file to check each file hash
         match Self::open_archive(&self.file) {
             Ok(mut archive) => {
                 // Create an iterator over the Ok entries
-                let entries = archive.entries().unwrap().into_iter();
+                let entries = archive.entries()?.into_iter();
 
                 // Iterate everything in the archive
                 for entry in entries {
@@ -281,8 +302,8 @@ impl PluginPackage<PackageV1, PackageManifestV1> for PackageV1 {
                         Err(err) => return Err(anyhow!("Unable to get archive entry path: {}", err.to_string())),
                     };
 
-                    // Skip checking the checksum file itself
-                    if path.eq_ignore_ascii_case("checksums.txt") {
+                    // Skip the checksum and signature files at this stage
+                    if path.eq_ignore_ascii_case("checksums.txt") || path.eq_ignore_ascii_case("signature.bin") {
                         continue;
                     }
 

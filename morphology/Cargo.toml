@@ -20,6 +20,8 @@ serde_repr = "0.1"
 tempfile = "3"
 
 # Package v1
+ed25519 = "3"
+ed25519-dalek = "3"
 hex = "0.4"
 liblzma = { version = "0.4", features = ["parallel", "static"] }
 sha3 = "0.12"
