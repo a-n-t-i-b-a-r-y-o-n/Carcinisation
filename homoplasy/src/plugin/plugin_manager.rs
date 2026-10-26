@@ -175,7 +175,20 @@ impl<'p> PluginManager {
         let mut loaded_count = 0;
         for mut package in packages {
 
-            println!("[-] Loading package: {:?}", &package.file.file_name().unwrap());
+            let package_filename = &package.file.file_name().unwrap().display();
+
+            println!("[-] Validating package: \"{}\"", package_filename);
+
+            // Verify the package
+            match package.validate() {
+                Ok(_) => {}
+                Err(e) => {
+                    println!("[!] Error validating package: {}", e);
+                    continue;
+                }
+            }
+
+            println!("[-] Loading package: \"{}\"", package_filename);
 
             // Extract documented package contents
             let extract_root = Self::extract_package(&mut package, extraction_dir)?;
