@@ -103,6 +103,8 @@ The current manifest version (v1) requires the following fields:
 | `entry_point`      | e.g. `some_binary`                  | From the above example |
 
 
+Correct values are set automatically when using the `carapace` plugin packaging tool.
+
 ### Tamper protection
 
 Plugins are expected to ship with tamper protection mechanisms that will cause validation to fail in the event of
