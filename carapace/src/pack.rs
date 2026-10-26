@@ -141,8 +141,12 @@ fn get_additional_files_checksums(additional_files: &Vec<PathBuf>) -> Result<Has
 
     for path in additional_files {
         if path.is_dir() {
+            // Get the directory name
+            let directory_name = path.file_name().unwrap().display();
+
             // Calculate checksums for the additional files
-            let additional_checksums = recursive_checksums("server", &path, None)?;
+            let additional_checksums =
+                recursive_checksums(&format!("server/{}", directory_name), &path, None)?;
 
             // Add to our map of checksums
             checksums.extend(additional_checksums);
@@ -297,7 +301,10 @@ r#"{{
 
                     // Append entire directories
                     if additional_file.is_dir() {
-                        tarball.append_dir_all("server", &additional_file)?;
+                        // Get the directory name
+                        let directory_name = additional_file.file_name().unwrap().display();
+
+                        tarball.append_dir_all(format!("server/{}", directory_name), &additional_file)?;
                     } else {
                         // Get the filename
                         let additional_filename = additional_file.file_name().unwrap()
