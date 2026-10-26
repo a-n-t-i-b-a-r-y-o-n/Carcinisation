@@ -19,11 +19,10 @@ Rust can generate compiled code from protobuf files and, surprisingly, can dynam
 at runtime with protobuf reflection.
 
 This project leverages both:
-* _Compile time_ guarantees for host <-> plugin IPC  
+* _Compile time_ guarantees for host <-> plugin gRPC IPC  
 * _Run time_ dynamic gRPC service registration   
 
-Plugins communicate with the host in JSON on stdin/stdout while exposing dynamically invoked, 
-arbitrary services.
+Plugins communicate with the host using gRPC over a Unix socket while exposing dynamically invoked, arbitrary services.
 
 
 ## Crates
