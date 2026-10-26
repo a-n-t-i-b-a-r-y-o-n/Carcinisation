@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fs;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::PathBuf;
@@ -179,6 +180,17 @@ pub(crate) fn package_plugin(command: Command) -> Result<PathBuf> {
             additional_files,
             output_directory
         } => {
+
+            // Check if output directory exists
+            if !fs::exists(&output_directory)? {
+                // Check if the parent exists
+                if fs::exists(&output_directory.parent().unwrap())? {
+                    // Create the leaf
+                    fs::create_dir(&output_directory)?;
+                } else {
+                    return Err(anyhow!("Output directory parent does not exist!"));
+                }
+            }
 
             // Get the entrypoint filename relative to the execution directory
             let entrypoint_filename = get_entrypoint_filename(&execution_dir, &entry_point);
