@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1"
-clap = { version = "4.6.7", features = ["derive"] }
+clap = { version = "4.6", features = ["derive"] }
 convert_case = "0.12"
 liblzma = { version = "0.4", features = ["parallel", "static"] }
 tar = { version = "0.4" }
