@@ -172,6 +172,7 @@ fn get_additional_files_checksums(additional_files: &Vec<PathBuf>) -> Result<Has
     Ok(checksums)
 }
 
+/// Build the complete plugin package
 pub(crate) fn package_plugin(command: Command) -> Result<PathBuf> {
     match command {
         Command::Pack {
