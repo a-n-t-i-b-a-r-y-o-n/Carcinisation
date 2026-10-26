@@ -36,6 +36,10 @@ pub(crate) enum Command {
         #[arg(short = 'k', long = "key")]
         signing_key: PathBuf,
 
+        /// Additional files/folder to include in the package
+        #[arg(short = 'a', long = "additional")]
+        additional_files: Option<Vec<PathBuf>>,
+
         /// Output directory for the packed result
         #[arg(short = 'o', long = "output")]
         output_directory: PathBuf,
