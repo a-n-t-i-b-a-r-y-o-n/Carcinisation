@@ -50,8 +50,14 @@ i.e. _Loads plugins that may have heterogeneously converged in form_
 
 ### `carapace` (n): the upper section of the exoskeleton in crustaceans
 
+Cross-platform plugin packaging executable.  
+i.e. _Creates a common exterior shape for heterogeneous code_
+
+
+### `convergence` (n): the tendency of unrelated flora and fauna to evolve similarly in similar environments
+
 Example project using the plugin loader.  
-i.e. _Demonstration of heterogeneous code usage_
+i.e. _Homogenous usage of heterogeneous code_
 
 
 ### Dependency
@@ -96,6 +102,8 @@ The current manifest version (v1) requires the following fields:
 | `execution_dir`    | e.g. `server`                       | From the above example |
 | `entry_point`      | e.g. `some_binary`                  | From the above example |
 
+
+Correct values are set automatically when using the `carapace` plugin packaging tool.
 
 ### Tamper protection
 

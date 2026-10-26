@@ -1,5 +1,11 @@
+use std::ffi::OsStr;
+use std::fs::File;
+use std::io::Read;
+use std::path::{Path, PathBuf};
+use ed25519::pkcs8::{DecodePrivateKey, DecodePublicKey};
 use ed25519::Signature;
 use ed25519::signature::{Signer, Verifier};
+use ed25519_dalek::{SigningKey, VerifyingKey};
 
 /// Public key used for verifying plugin signatures
 pub(crate) const VERIFYING_KEY: &str =
@@ -26,6 +32,24 @@ where
     }
 }
 
+/// Build a signer directly from a PEM private key file
+impl<P> From<P> for PluginSigner<SigningKey>
+where
+    P: AsRef<OsStr> + AsRef<Path>,
+{
+    fn from(value: P) -> Self {
+        let path = PathBuf::from(&value);
+        let mut file = File::open(&path).unwrap();
+        let mut content = String::new();
+        _ = file.read_to_string(&mut content).unwrap();
+        let signing_key = SigningKey::from_pkcs8_pem(&content).unwrap();
+        
+        Self {
+            signing_key,
+        }
+    }
+}
+
 
 /// Generic signature verifier
 pub struct PluginSignatureVerifier<V> {
@@ -42,5 +66,23 @@ where
         C: AsRef<[u8]>
     {
         self.verifying_key.verify(content.as_ref(), signature)
+    }
+}
+
+/// Build a verifier directly from a PEM public key file
+impl<P> From<P> for PluginSignatureVerifier<VerifyingKey>
+where
+    P: AsRef<OsStr> + AsRef<Path>,
+{
+    fn from(value: P) -> Self {
+        let path = PathBuf::from(&value);
+        let mut file = File::open(&path).unwrap();
+        let mut content = String::new();
+        _ = file.read_to_string(&mut content).unwrap();
+        let verifying_key = VerifyingKey::from_public_key_pem(&content).unwrap();
+
+        Self {
+            verifying_key,
+        }
     }
 }

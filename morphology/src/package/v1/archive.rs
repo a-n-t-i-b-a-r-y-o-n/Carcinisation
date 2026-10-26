@@ -25,7 +25,7 @@ impl PackageV1 {
     }
 
     /// Open a package archive for reading
-    pub(crate) fn open_archive<S>(input_path: &S) -> Result<ArchiveFormat>
+    pub fn open_archive<S>(input_path: &S) -> Result<ArchiveFormat>
     where
         S: AsRef<OsStr> + AsRef<Path> + ?Sized
     {

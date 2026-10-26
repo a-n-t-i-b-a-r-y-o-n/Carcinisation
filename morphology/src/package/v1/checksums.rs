@@ -3,7 +3,6 @@ use std::str::from_utf8;
 
 use anyhow::{anyhow, Result};
 use hex;
-use serde::{Deserialize, Serialize};
 use sha3::{Digest, Sha3_256};
 
 use crate::package::checksums::Checksums;
@@ -15,7 +14,7 @@ use crate::package::checksums::Checksums;
 /// relative/path/to/fileA - abc123def456
 /// relative/path/to/fileB - 098fed765cba
 /// ```
-#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct ChecksumsV1 {
     pub raw_bytes: Vec<u8>,
     pub checksums: HashMap<String, String>,
@@ -48,6 +47,20 @@ impl From<Vec<u8>> for ChecksumsV1 {
         Self {
             raw_bytes: value,
             checksums: hashes,
+        }
+    }
+}
+
+impl From<HashMap<String, String>> for ChecksumsV1 {
+    fn from(value: HashMap<String, String>) -> Self {
+        let mut output_string = String::new();
+        for (path, checksum) in value.iter() {
+            output_string = format!("{}{} - {}\n", output_string, path, checksum)
+        }
+
+        Self {
+            raw_bytes: output_string.into_bytes(),
+            checksums: value,
         }
     }
 }
