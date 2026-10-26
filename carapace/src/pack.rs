@@ -93,14 +93,14 @@ pub(crate) fn package_plugin(command: Command) -> Result<PathBuf> {
             // Get the entrypoint filename relative to the execution directory
             let entrypoint_filename = match &execution_dir {
                 None => {
-                    // If none, assume we'll put it in the root of "server/"
+                    // If no execution directory given, assume we'll put the entrypoint in the root of "server/"
                     entry_point.file_name()
                         .unwrap()
                         .display()
                         .to_string()
                 },
                 Some(directory) => {
-                    // Get the full path to it
+                    // Get the full path to the entrypoint
                     let full_entrypoint_path = entry_point.file_name()
                         .unwrap()
                         .display()
@@ -109,8 +109,10 @@ pub(crate) fn package_plugin(command: Command) -> Result<PathBuf> {
                     // Get the root it's in
                     let execution_directory_path = directory.display().to_string();
 
-                    // Get the relative path from the root, which we'll put inside "server/"
-                    String::from(full_entrypoint_path.trim_start_matches(&execution_directory_path))
+                    // Get the relative entrypoint path within the root, which we'll put into "server/"
+                    let relative_entrypoint_path = full_entrypoint_path.trim_start_matches(&execution_directory_path);
+
+                    String::from(relative_entrypoint_path)
                 }
             };
 
@@ -145,9 +147,8 @@ r#"{{
             // Add to our map of checksums
             checksums.extend(proto_checksums);
 
-            // Add full executable directory checksums
             if execution_dir.is_some() {
-                // Get execution directory checksums with "server/*" paths
+                // Get checksums of everything in the execution directory with "server/*" paths
                 let execution_checksums =
                     recursive_checksums("server", &execution_dir.clone().unwrap(), None)?;
 
@@ -159,7 +160,7 @@ r#"{{
                 let mut bytes = vec!();
                 entrypoint_file.read_to_end(&mut bytes)?;
 
-                // Generate a checksum for the entrypoint file
+                // Generate a checksum for the entrypoint file alone
                 let entrypoint_checksum = ChecksumsV1::generate_checksum(&bytes);
 
                 // Add to our map of checksums
