@@ -42,12 +42,10 @@ pub(crate) enum Command {
     },
     Verify {
         /// Path to the package to verify
-        #[arg(short = 'p', long = "package")]
         package_file: PathBuf,
     },
     Dump {
         /// Path to the package to dump
-        #[arg(short = 'p', long = "package")]
         package_file: PathBuf,
     }
 }

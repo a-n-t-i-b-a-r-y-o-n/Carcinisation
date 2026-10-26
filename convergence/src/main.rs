@@ -1,19 +1,25 @@
+mod cli;
+
+use clap::Parser;
 use futures_util::future::{join3, join_all};
 use tonic::transport::Server;
 use homoplasy::plugin::plugin_manager::PluginManager;
 use homoplasy::plugin::plugin_server_ext::PluginRoutesExt;
+use crate::cli::Cli;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Parse CLI args
+    let args = Cli::parse();
 
-    let port = 50052;
+    // Set the server address
+    let port = args.port_number;
     let addr = format!("[::]:{}", port).parse()?;
 
-    let plugin_dir_1 = "/media/medium/Projects/muonium/source/experiments/rust/plugin_test_4/plugins/";
-
+    // Load each specified plugin
     let mut plugin_count = 0;
-    for plugin_dir in [plugin_dir_1] {
-        println!("[+] Loading plugins from \"{}\"...", plugin_dir);
+    for plugin_dir in args.plugin_paths {
+        println!("[-] Loading plugins from \"{}\"...", plugin_dir.display());
         plugin_count += PluginManager::load_plugins(&plugin_dir).await?;
     }
 
@@ -23,12 +29,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("[+] Starting IPC server...");
 
+    // Start the plugin IPC server
     let ipc_server = PluginManager::start_ipc().await?;
 
     println!("[+] Starting plugins...");
 
+    // Start each plugin
     let plugin_handles = PluginManager::start_plugins().await?;
 
+    // Start the proxy server
     let proxy_server = Server::builder()
         .add_plugin_routes()
         .serve(addr);

@@ -210,7 +210,7 @@ impl<'p> PluginManager {
                 service.bind_to_server(plugin_socket.to_path_buf())?;
             }
 
-            println!("[-] Loaded plugin: {} v{}", package.manifest.plugin_name(), package.manifest.plugin_version());
+            println!("[+] Loaded plugin: {} v{}", package.manifest.plugin_name(), package.manifest.plugin_version());
 
             // Build plugin object
             let plugin = Plugin::new(package, services, plugin_socket, extract_root);
