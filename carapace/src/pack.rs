@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fs;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::PathBuf;
@@ -13,7 +14,8 @@ use morphology::package::{
 use morphology::package::v1::signature::PluginSigner;
 use crate::cli::Command;
 
-pub(crate) fn recursive_checksums(prefix: &str, path: &PathBuf, depth: Option<usize>) -> Result<HashMap<String, String>> {
+/// Calculate checksums recursively for a given folder with a given path prefix
+fn recursive_checksums(prefix: &str, path: &PathBuf, depth: Option<usize>) -> Result<HashMap<String, String>> {
     // Checksum tracker
     let mut checksums = HashMap::new();
 
@@ -62,7 +64,7 @@ pub(crate) fn recursive_checksums(prefix: &str, path: &PathBuf, depth: Option<us
         // Calculate the file's checksum
         let checksum = ChecksumsV1::generate_checksum(&bytes);
 
-        // Add to our list of checksums
+        // Add to our map of checksums
         checksums.insert(String::from(relative_path), checksum);
     }
 
@@ -78,6 +80,99 @@ pub(crate) fn recursive_checksums(prefix: &str, path: &PathBuf, depth: Option<us
     Ok(checksums)
 }
 
+/// Get the relative entrypoint filename
+fn get_entrypoint_filename(execution_dir: &Option<PathBuf>, entry_point: &PathBuf) -> String {
+    match &execution_dir {
+        None => {
+            // If no execution directory given, assume we'll put the entrypoint in the root of "server/"
+            entry_point.file_name()
+                .unwrap()
+                .display()
+                .to_string()
+        },
+        Some(directory) => {
+            // Get the full path to the entrypoint
+            let full_entrypoint_path = entry_point.file_name()
+                .unwrap()
+                .display()
+                .to_string();
+
+            // Get the root it's in
+            let execution_directory_path = directory.display().to_string();
+
+            // Get the relative entrypoint path within the root, which we'll put into "server/"
+            let relative_entrypoint_path = full_entrypoint_path.trim_start_matches(&execution_directory_path);
+
+            String::from(relative_entrypoint_path)
+        }
+    }
+}
+
+/// Calculate checksums for the entrypoint and/or executable directory
+fn get_execution_checksums(execution_dir: &Option<PathBuf>, entry_point: &PathBuf, entrypoint_filename: &str) -> Result<HashMap<String, String>> {
+    let mut checksums = HashMap::new();
+
+    if execution_dir.is_some() {
+        // Get checksums of everything in the execution directory with "server/*" paths
+        let execution_checksums =
+            recursive_checksums("server", &execution_dir.clone().unwrap(), None)?;
+
+        // Add to our map of checksums
+        checksums.extend(execution_checksums)
+    } else {
+        // Read the entrypoint file directly
+        let mut entrypoint_file = File::open(&entry_point)?;
+        let mut bytes = vec!();
+        entrypoint_file.read_to_end(&mut bytes)?;
+
+        // Generate a checksum for the entrypoint file alone
+        let entrypoint_checksum = ChecksumsV1::generate_checksum(&bytes);
+
+        // Add to our map of checksums
+        checksums.insert(format!("server/{}", entrypoint_filename), entrypoint_checksum);
+    }
+
+    Ok(checksums)
+}
+
+/// Calculate checksums for the given additional files
+fn get_additional_files_checksums(additional_files: &Vec<PathBuf>) -> Result<HashMap<String, String>> {
+    let mut checksums = HashMap::new();
+
+    for path in additional_files {
+        if path.is_dir() {
+            // Get the directory name
+            let directory_name = path.file_name().unwrap().display();
+
+            // Calculate checksums for the additional files
+            let additional_checksums =
+                recursive_checksums(&format!("server/{}", directory_name), &path, None)?;
+
+            // Add to our map of checksums
+            checksums.extend(additional_checksums);
+        } else {
+            // Open the file for reading
+            let mut additional_file = File::open(&path)?;
+
+            // Read the file
+            let mut bytes = vec!();
+            additional_file.read_to_end(&mut bytes)?;
+
+            // Calculate the checksum
+            let additional_checksum = ChecksumsV1::generate_checksum(&bytes);
+
+            // Get the relative path we'll use inside "server/"
+            let relative_path = format!("server/{}", path.file_name().unwrap().display());
+
+            // Add to our map of checksums
+            checksums.insert(relative_path, additional_checksum);
+        }
+    }
+
+    Ok(checksums)
+}
+
+/// Build the complete plugin package
 pub(crate) fn package_plugin(command: Command) -> Result<PathBuf> {
     match command {
         Command::Pack {
@@ -87,32 +182,23 @@ pub(crate) fn package_plugin(command: Command) -> Result<PathBuf> {
             execution_dir,
             entry_point,
             signing_key,
+            additional_files,
             output_directory
         } => {
 
-            // Get the entrypoint filename relative to the execution directory
-            let entrypoint_filename = match &execution_dir {
-                None => {
-                    // If none, assume we'll put it in the root of "server/"
-                    entry_point.file_name()
-                        .unwrap()
-                        .display()
-                        .to_string()
-                },
-                Some(directory) => {
-                    // Get the full path to it
-                    let full_entrypoint_path = entry_point.file_name()
-                        .unwrap()
-                        .display()
-                        .to_string();
-
-                    // Get the root it's in
-                    let execution_directory_path = directory.display().to_string();
-
-                    // Get the relative path from the root, which we'll put inside "server/"
-                    String::from(full_entrypoint_path.trim_start_matches(&execution_directory_path))
+            // Check if output directory exists
+            if !fs::exists(&output_directory)? {
+                // Check if the parent exists
+                if fs::exists(&output_directory.parent().unwrap())? {
+                    // Create the leaf
+                    fs::create_dir(&output_directory)?;
+                } else {
+                    return Err(anyhow!("Output directory parent does not exist!"));
                 }
-            };
+            }
+
+            // Get the entrypoint filename relative to the execution directory
+            let entrypoint_filename = get_entrypoint_filename(&execution_dir, &entry_point);
 
             // Build the manifest
             let manifest_content = format!(
@@ -145,25 +231,16 @@ r#"{{
             // Add to our map of checksums
             checksums.extend(proto_checksums);
 
-            // Add full executable directory checksums
-            if execution_dir.is_some() {
-                // Get execution directory checksums with "server/*" paths
-                let execution_checksums =
-                    recursive_checksums("server", &execution_dir.clone().unwrap(), None)?;
+            // Calculate checksums for the entrypoint and/or executable directory
+            let execution_checksums =
+                get_execution_checksums(&execution_dir, &entry_point, &entrypoint_filename)?;
+            checksums.extend(execution_checksums);
 
-                // Add to our map of checksums
-                checksums.extend(execution_checksums)
-            } else {
-                // Read the entrypoint file directly
-                let mut entrypoint_file = File::open(&entry_point)?;
-                let mut bytes = vec!();
-                entrypoint_file.read_to_end(&mut bytes)?;
-
-                // Generate a checksum for the entrypoint file
-                let entrypoint_checksum = ChecksumsV1::generate_checksum(&bytes);
-
-                // Add to our map of checksums
-                checksums.insert(format!("server/{}", entrypoint_filename), entrypoint_checksum);
+            // Check for any additional files/folders
+            if additional_files.is_some() {
+                // Calculate checksums for the additional files/folders
+                let additional_checksums = get_additional_files_checksums(&additional_files.clone().unwrap())?;
+                checksums.extend(additional_checksums);
             }
 
             // Build the checksum file content
@@ -205,6 +282,7 @@ r#"{{
             // Put the protobuf directory in the package
             tarball.append_dir_all("proto", &proto_dir)?;
 
+            // Append the execution directory or entrypoint
             if execution_dir.is_none() {
                 // Open the entrypoint file
                 let mut entrypoint_file = File::open(&entry_point)?;
@@ -214,6 +292,33 @@ r#"{{
             } else {
                 // Add the whole execution directory
                 tarball.append_dir_all("server", &mut execution_dir.unwrap())?;
+            }
+
+            // Append any additional files or folders
+            if additional_files.is_some() {
+                let additional_files = additional_files.unwrap();
+
+                for additional_file in additional_files {
+
+                    // Append entire directories
+                    if additional_file.is_dir() {
+                        // Get the directory name
+                        let directory_name = additional_file.file_name().unwrap().display();
+
+                        tarball.append_dir_all(format!("server/{}", directory_name), &additional_file)?;
+                    } else {
+                        // Get the filename
+                        let additional_filename = additional_file.file_name().unwrap()
+                            .display().to_string();
+
+                        // Open the additional file
+                        let mut file = File::open(&additional_file)?;
+
+                        // Append to the tarball
+                        tarball.append_file(&format!("server/{}", additional_filename), &mut file)?;
+                    }
+
+                }
             }
 
             // Finalize the tarball
