@@ -28,7 +28,7 @@ parking_lot = "0.13"
 tokio = "1.52"
 
 # Proto parsing
-bytes = "1.11"
+bytes = "1"
 prost-reflect = "0.16"
 
 # Temporary files
