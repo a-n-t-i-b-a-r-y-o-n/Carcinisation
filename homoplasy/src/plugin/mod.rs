@@ -12,6 +12,7 @@ pub mod plugin_service;
 mod plugin_status;
 pub mod plugin_server_ext;
 mod plugin_process;
+mod file_descriptor_set;
 
 #[derive(Clone)]
 pub struct Plugin {

@@ -1,6 +1,6 @@
 [package]
 name = "homoplasy"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 
 [dependencies]
@@ -30,6 +30,7 @@ tokio = "1.52"
 # Proto parsing
 bytes = "1"
 prost-reflect = "0.16"
+regex = "1.13.1"
 
 # Temporary files
 tempfile = "3"
