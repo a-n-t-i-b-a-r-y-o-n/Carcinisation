@@ -3,16 +3,13 @@ use std::error::Error;
 use std::ffi::OsStr;
 use std::future::poll_fn;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
-use anyhow::{anyhow, Result};
-use bytes::Bytes;
+use anyhow::Result;
 use hyper_util::rt::TokioIo;
 use parking_lot::RwLock;
-use prost_reflect::DescriptorPool;
-use tempfile::TempDir;
+use protobuf_descriptor_gen::generate_descriptor_pool;
 use tokio::net::UnixStream;
 use tonic::body::Body;
 use tonic::codegen::BoxFuture;
@@ -59,60 +56,14 @@ struct PluginServiceInner {
 /// RPC Service implemented in a plugin
 impl PluginService {
 
-    /// Generate a descriptor set from reading a given proto file
-    fn generate_descriptor_set(input_proto: &PathBuf, scratch_dir: &TempDir) -> Result<PathBuf> {
-
-        // Get containing directory for input (required for protoc)
-        let input_dir = input_proto.parent().unwrap_or(Path::new("/"));
-
-        // Output descriptor set
-        let output_file = scratch_dir.path().join("descriptor_set.bin");
-
-        let child = Command::new("protoc")
-            .args([
-                "--include_imports",
-                &format!("--descriptor_set_out={}", output_file.display()),
-                &format!("--proto_path={}", input_dir.display()),
-                &format!("{}", input_proto.display())
-            ])
-            .spawn()?
-            .wait()?;
-
-        if !child.success() {
-            Err(anyhow!("Error: protoc exited code {:#?}", child.code()))
-        } else {
-            Ok(output_file)
-        }
-    }
-
-    /// Read a raw DescriptorSet file from disk
-    fn parse_descriptor_set(file_path: &PathBuf) -> Result<DescriptorPool> {
-        if !file_path.exists() {
-            return Err(anyhow!("Cannot read nonexistent descriptor set: {}", &file_path.display()))
-        }
-
-        let raw = std::fs::read(&file_path)?;
-
-        match DescriptorPool::decode(Bytes::from(raw)) {
-            Ok(dp) => Ok(dp),
-            Err(e) => Err(anyhow!(e))
-        }
-    }
-
     /// Parse services from a proto file
     pub fn new_from_proto(proto_path: &PathBuf) -> Result<Vec<Self>> {
 
         // Get absolute path to input proto file
         let input_proto = proto_path.canonicalize()?;
 
-        // Create temp dir to write outputs
-        let scratch_dir = tempfile::tempdir()?;
-
-        // Generate descriptor set in temp dir
-        let descriptor_set = Self::generate_descriptor_set(&input_proto, &scratch_dir)?;
-
         // Parse the descriptor set file into a pool
-        let descriptor_pool = Self::parse_descriptor_set(&descriptor_set)?;
+        let descriptor_pool = generate_descriptor_pool(&input_proto)?;
 
         // Build list of plugin services
         let mut services = vec!();
