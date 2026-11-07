@@ -30,6 +30,7 @@ tokio = "1.52"
 # Proto parsing
 bytes = "1"
 prost-reflect = "0.16"
+protobuf_descriptor_gen = { git = "https://gitlab.com/muonium/protobuf_descriptor_gen.git" }
 
 # Temporary files
 tempfile = "3"
